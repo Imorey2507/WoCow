@@ -15,9 +15,11 @@ npm ci
 npm start
 ```
 
-Scan the QR code with your iPhone camera and open it in Expo Go. The app opens
-to an interactive UC Davis map using Apple Maps; no map API key is needed.
-See [`ios-app/README.md`](ios-app/README.md) for details.
+Scan the QR code with your iPhone camera and open it in Expo Go. The iPhone app
+has Map, Discover, Buddies, and Profile tabs. Preview activities, hosting,
+discussion posts, and profile edits work locally; shared accounts and live data
+need the native app's Supabase configuration. The campus map uses Apple Maps
+and needs no map API key. See [`ios-app/README.md`](ios-app/README.md) for details.
 
 ## Run it locally
 
