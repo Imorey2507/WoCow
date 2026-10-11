@@ -331,6 +331,132 @@ end $$;
 
 reset role;
 
+-- ── Person 3 hardening: participants are RPC-only ────────────────────────────
+
+-- 1. Privilege-level, not merely policy-level. A missing RLS policy is the only
+--    thing that used to block a direct write, so assert the GRANT itself: this
+--    keeps holding even if somebody adds an INSERT policy by mistake later.
+do $$
+begin
+  if has_table_privilege('authenticated', 'public.participants', 'INSERT')
+     or has_table_privilege('authenticated', 'public.participants', 'UPDATE')
+     or has_table_privilege('authenticated', 'public.participants', 'DELETE')
+     or has_table_privilege('anon', 'public.participants', 'INSERT') then
+    raise exception 'FAIL: a client role still holds write privileges on participants';
+  end if;
+  if not has_table_privilege('authenticated', 'public.participants', 'SELECT') then
+    raise exception 'FAIL: authenticated lost SELECT on participants — the feed needs it';
+  end if;
+  raise notice 'PASS  client roles hold SELECT only on participants (no INSERT/UPDATE/DELETE)';
+end $$;
+
+-- 2. And an actual attempted write is refused, not just unprivileged on paper.
+select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-0000000000bb01', true);
+set local role authenticated;
+
+do $$
+begin
+  begin
+    insert into public.participants (activity_id, user_id)
+    values ('00000000-0000-0000-0000-0000000000ac02', '00000000-0000-0000-0000-0000000000bb01');
+    raise exception 'FAIL: a signed-in user inserted a participation row directly';
+  exception
+    when insufficient_privilege then
+      raise notice 'PASS  a direct INSERT into participants is refused for authenticated';
+  end;
+end $$;
+
+do $$
+begin
+  begin
+    update public.participants set joined_at = now()
+     where activity_id = '00000000-0000-0000-0000-0000000000ac02';
+    raise exception 'FAIL: a signed-in user updated a participation row directly';
+  exception
+    when insufficient_privilege then
+      raise notice 'PASS  a direct UPDATE of participants is refused for authenticated';
+  end;
+end $$;
+
+-- 3. The RPC must still work: it runs SECURITY DEFINER, so the revoke cannot
+--    break joining (or leaving, exercised earlier).
+do $$
+declare n int;
+begin
+  perform public.join_activity('00000000-0000-0000-0000-0000000000ac02');
+  select count(*) into n from public.participants
+   where activity_id = '00000000-0000-0000-0000-0000000000ac02'
+     and user_id = '00000000-0000-0000-0000-0000000000bb01';
+  if n <> 1 then raise exception 'FAIL: join_activity inserted % rows, expected 1', n; end if;
+  raise notice 'PASS  join_activity still works after the write privileges were revoked';
+end $$;
+
+-- 4. Static proof that the concurrency control is still there. PGlite and a
+--    single SQL-editor session cannot reproduce a real race, so assert the
+--    mechanism itself rather than pretending to test the race.
+reset role;
+do $$
+declare src text;
+begin
+  select prosrc into src from pg_proc where proname = 'join_activity';
+  if src is null then raise exception 'FAIL: join_activity is missing'; end if;
+  if position('for update' in lower(src)) = 0 then
+    raise exception 'FAIL: join_activity no longer locks the activity row (no FOR UPDATE)';
+  end if;
+  raise notice 'PASS  join_activity still takes a row lock (FOR UPDATE) on the activity';
+end $$;
+
+-- 5. Capacity guard: a host must not strand the students already joined.
+select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-0000000000aa01', true);
+set local role authenticated;
+
+do $$
+declare n int;
+begin
+  select count(*) into n from public.participants
+   where activity_id = '00000000-0000-0000-0000-0000000000ac01';
+  if n <> 2 then raise exception 'FAIL: expected 2 participants on ac01, found %', n; end if;
+
+  begin
+    update public.activities set max_participants = 1
+     where id = '00000000-0000-0000-0000-0000000000ac01';
+    raise exception 'FAIL: the host lowered capacity below the % already joined', n;
+  exception
+    when check_violation then
+      raise notice 'PASS  lowering max_participants below the joined count is rejected (23514)';
+  end;
+end $$;
+
+-- 6. Legal capacity changes must still work — the guard must not be a blanket ban.
+do $$
+begin
+  update public.activities set max_participants = 2
+   where id = '00000000-0000-0000-0000-0000000000ac01';
+  raise notice 'PASS  lowering the capacity to exactly the joined count is allowed';
+
+  update public.activities set max_participants = 8
+   where id = '00000000-0000-0000-0000-0000000000ac01';
+  raise notice 'PASS  raising the capacity is allowed';
+end $$;
+
+-- 7. No email anywhere near the public projection.
+reset role;
+do $$
+declare n int;
+begin
+  select count(*) into n from information_schema.columns
+   where table_schema = 'public' and table_name = 'public_profiles' and column_name ilike '%email%';
+  if n <> 0 then raise exception 'FAIL: public_profiles exposes an email column'; end if;
+
+  select count(*) into n from information_schema.columns
+   where table_schema = 'public' and table_name = 'profiles' and column_name ilike '%email%';
+  if n <> 0 then raise exception 'FAIL: profiles carries an email column that could leak'; end if;
+
+  raise notice 'PASS  no email column exists on profiles or public_profiles';
+end $$;
+
+reset role;
+
 -- ── nothing is kept ──────────────────────────────────────────────────────────
 rollback;
 

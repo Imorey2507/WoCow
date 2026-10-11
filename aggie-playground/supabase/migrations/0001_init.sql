@@ -102,6 +102,16 @@ alter table public.participants enable row level security;
 create policy "participants readable" on public.participants for select using (true);
 -- No insert/delete policies: all writes go through join_activity / leave_activity below,
 -- which enforce capacity atomically.
+--
+-- Supabase grants anon/authenticated ALL privileges on public tables by default,
+-- so the absent INSERT policy was the only thing blocking a direct client write.
+-- Revoke the write privileges too, then re-grant read: with both in place a
+-- direct write fails at the privilege check, not merely at the policy check, and
+-- stays safe even if somebody later adds a policy by mistake. All legitimate
+-- writes happen inside SECURITY DEFINER functions (the join/leave RPCs and the
+-- host_auto_join trigger), which run as the owner and are unaffected.
+revoke all on public.participants from anon, authenticated, public;
+grant select on public.participants to anon, authenticated;
 
 -- Participant counts are always derived from participation rows.
 create view public.activity_feed with (security_invoker = true) as
@@ -169,6 +179,31 @@ begin
 end $$;
 create trigger activities_host_join after insert on public.activities
 for each row execute function public.host_auto_join();
+
+-- A host may raise the capacity, or lower it — but not below the number of
+-- students already in. Without this, a host could set max_participants to 1
+-- while five people are joined, and every read of spots_remaining would be a
+-- lie (greatest(max - count, 0) hides the overflow).
+--
+-- The UPDATE holds the same row lock that join_activity takes with
+-- `select ... for update`, so this cannot race a concurrent join.
+create or replace function public.enforce_activity_capacity() returns trigger
+language plpgsql set search_path = public, pg_temp as $$
+declare
+  joined int;
+begin
+  if new.max_participants is distinct from old.max_participants then
+    select count(*) into joined from public.participants where activity_id = old.id;
+    if new.max_participants < joined then
+      raise exception 'Capacity cannot be lower than the % student(s) already joined.', joined
+        using errcode = '23514';
+    end if;
+  end if;
+  return new;
+end $$;
+
+create trigger activities_capacity_guard before update of max_participants on public.activities
+for each row execute function public.enforce_activity_capacity();
 
 -- ───────────────────────── notifications ─────────────────────────
 create table public.notifications (
