@@ -1,6 +1,13 @@
-// Quick smoke test / demo script:
+// Quick smoke test / demo script for the Context.dev extraction:
+//
+//   npm install --no-save context.dev tsx
 //   export CONTEXT_DEV_API_KEY=ctxt_secret_...
-//   npx tsx src/run.ts
+//   npx tsx aggie-playground/scripts/run.ts
+//
+// NOTE: standalone prototype, NOT part of the Next.js app's build. The app
+// itself calls the Context.dev REST API directly (src/lib/server/context.ts)
+// and deliberately does not depend on the `context.dev` npm package, so this
+// script's imports are installed on demand only.
 import { dedupe, findClubEvents, needsMoreEvents, scrapeEvents } from "./contextdev.js";
 
 const main = async () => {

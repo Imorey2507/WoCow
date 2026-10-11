@@ -14,6 +14,49 @@ shared Supabase database and one Vercel deployment.
 
 ---
 
+## ⚠️ READ FIRST: this repository holds two implementations
+
+As of 2026-10-11 there are **two working apps** in this repo. The team has not
+yet decided which one becomes WoCow, so **both are preserved and neither should
+be deployed until that call is made.**
+
+| | **This folder** (repo root) | [`aggie-playground/`](aggie-playground/) |
+| --- | --- | --- |
+| Stack | Vite + React 19 SPA | **Next.js 16** App Router + Tailwind 4 |
+| Tabs | Discover · For you · Map · My plans | Profile · Map · Discover · **Buddies** |
+| Context.dev | ✗ | **✓ scrapes AggieLife into `club_events`** |
+| Notifications | ✗ | ✓ DB triggers + in-app centre |
+| Buddy matching | ✗ | ✓ opt-in, scored |
+| Forum posts | ✗ | ✓ |
+| Profile | ✗ | ✓ |
+| Tables | 2 | 8 |
+| Tests | **53 DB checks · 25 unit** | none yet |
+| Deploy target | Vercel, root directory `./` | Vercel, root directory `aggie-playground` |
+
+Both independently arrived at the same core design (`activities` +
+`activity_feed` view + a `join_activity()` RPC that row-locks the activity), but
+they are **different schemas and different stacks**. Only one can ship.
+
+**Why this matters for scoring.** The event rules state that judges will check
+for *hard-coded functionality*, and the Context.dev bonus is worth $750 + $5k
+credits. Context.dev needs `CONTEXT_DEV_API_KEY` and a `service_role` key held
+**server-side** — a Vite SPA has no server, so those keys would end up in the
+browser bundle. Only the Next.js app can safely claim that track.
+
+**Nobody may deploy either app without a team decision.** If Vercel is pointed
+at this repo with the default root directory, it will build the Vite app here.
+
+### What is shared
+
+- One GitHub repository (yours)
+- One Supabase project — **but the two apps expect different schemas.** Running
+  both sets of migrations against one database will collide on the `activities`
+  and `activity_feed` names. Do not do that.
+- The Context.dev prototype in [`aggie-playground/scripts/`](aggie-playground/scripts/)
+  holds the authoritative 7-category taxonomy from the product brainstorm.
+
+---
+
 ## Stack
 
 | Layer | Choice | Why |

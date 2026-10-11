@@ -22,6 +22,32 @@ needs more discipline than one.
 **Stack:** React 19 + TypeScript + Vite · Supabase (PostgreSQL + Auth +
 Realtime) · Leaflet + OpenStreetMap · Vitest · Vercel.
 
+### ⚠️ Two apps live here — read this before editing anything
+
+The repository currently contains **two implementations** of WoCow, and the
+team has not yet chosen between them:
+
+| Path | What it is |
+| --- | --- |
+| repository root (`src/`, `supabase/`) | Vite + React SPA. 53 database checks, 25 unit tests. No Context.dev. |
+| `aggie-playground/` | Next.js 16 App Router. Context.dev scraping, notifications, buddy matching, forum, profile. |
+
+**Rules while both exist:**
+
+1. **Do not deploy either one.** Pointed at this repo, Vercel defaults to
+   building the Vite app at the root.
+2. **Do not run both sets of migrations against one Supabase project.** Both
+   define `activities` and `activity_feed` and will collide.
+3. **Keep your edits inside one app's folder.** Nothing imports across the
+   boundary.
+4. `aggie-playground/` has its own `package.json` and its own `AGENTS.md`.
+   Read that file before touching Next.js code — it warns that its Next.js
+   version has breaking changes and that you must consult
+   `node_modules/next/dist/docs/` first.
+
+Rationale for the eventual choice, and what each app covers, is tabulated in
+[README.md § READ FIRST](README.md#-read-first-this-repository-holds-two-implementations).
+
 ---
 
 ## 2. Hard rules
@@ -282,7 +308,7 @@ Note on `pnpm` config: **pnpm 11 no longer reads the `pnpm` field in
 
 ## 10. Current state
 
-**Done and verified**
+**Done and verified (repo root — the Vite app)**
 
 - React + Vite + TS app, all five modules, mobile-first UI
 - Seven Supabase migrations: schema, capacity helper, feed view, RLS, atomic
@@ -293,16 +319,30 @@ Note on `pnpm` config: **pnpm 11 no longer reads the `pnpm` field in
   <https://github.com/Imorey2507/WoCow>
 - Docs, GitHub Actions CI, and a PR template
 
+**Also present (`aggie-playground/` — the Next.js app)**
+
+- 4-tab shell matching the brainstorm (profile, map, discover, buddies)
+- 8-table schema including notifications, buddy requests, club events and posts
+- Context.dev integration that scrapes AggieLife into `club_events`
+- The 7-category taxonomy prototype in `aggie-playground/scripts/`
+- No automated tests yet
+
+**Undecided**
+
+- Which of the two apps becomes WoCow. Both are preserved pending a team
+  decision; neither should be deployed until then.
+
 **Still needs a human with credentials**
 
-1. Create the shared Supabase project and run the seven migrations
+1. Create the shared Supabase project and run the chosen app's migrations
    ([docs/SETUP.md](docs/SETUP.md))
 2. Invite the other four as repository collaborators
-3. Import into Vercel and set the two `VITE_*` environment variables
+3. Import into Vercel, set the **root directory** to the chosen app, and add
+   the `VITE_*` (Vite) or `NEXT_PUBLIC_*` (Next.js) environment variables
    ([docs/DEPLOY.md](docs/DEPLOY.md))
-4. Enable **Anonymous sign-ins** in Supabase Auth — that powers the one-tap
-   "Continue as guest" demo path
-5. Make the repository **Public** before submission
+4. Enable **Anonymous sign-ins** in Supabase Auth if you want the one-tap
+   guest demo path
+5. Make the repository **Public** before submission — the event requires it
 
 ---
 
