@@ -4,7 +4,7 @@
 > history. Everything here is verifiable from Git. **Do not trust the SHAs in
 > this file without re-checking them** — they were true when written.
 
-Last updated: after commit `9c2814c` (Person 4 review).
+Last updated: after commit `d280f1a` (code-completeness pass).
 
 ---
 
@@ -14,9 +14,9 @@ Last updated: after commit `9c2814c` (Person 4 review).
 | --- | --- |
 | Worktree | `D:\300_Workspace\B@BHacks 2.0\_wt-sprint` |
 | Branch | `sprint/final-hour` |
-| HEAD at time of writing | `9c2814c3ff441a45a07ef9e7e01cb5a5b56279e0` |
+| HEAD at time of writing | `d280f1a32cd453ac6497ee7098c65fe426a5be5a` |
 | Base | `origin/main` = `4d2158b3ff9fb1d1e249acf94aef2a13ad32f2c4` |
-| Ahead of main by | 5 commits (0 behind) |
+| Ahead of main by | 7 commits (0 behind) |
 
 The sprint branch deliberately uses its **own worktree** so the older
 `feature/frontend` worktree and its preview on port 3000 are undisturbed.
@@ -33,6 +33,7 @@ Other worktrees that exist and must not be deleted:
 ## 2. Commits on this branch
 
 ```
+d280f1a  Fix the broken Magic Link flow and notify hosts about joins
 9c2814c  Close Person 4 matching integration gaps                (Person 4 review)
 dd6936d  Add the final-hour handoff document
 624f002  Bind profile notifications to the signed-in viewer     (Person 1 follow-up fix)
@@ -40,6 +41,17 @@ dd6936d  Add the final-hour handoff document
 668c5ea  Complete Person 2 campus map experience                (Person 2)
 4d2158b  Merge pull request #4 …                                (Person 1, already on main)
 ```
+
+### Two release blockers fixed in `d280f1a`
+
+- **Magic Link could never complete.** `@supabase/ssr@0.12.7`'s
+  `createBrowserClient` hard-codes `flowType: "pkce"`, so the link returns
+  `?code=…` and needs a server-side exchange. There was **no callback route**.
+  Added `src/app/auth/callback/route.ts`; `emailRedirectTo` now targets it.
+  ⚠️ `export const dynamic` is a **build error** in this repo because
+  `next.config.ts` sets `cacheComponents: true` — do not add it back.
+- **Joining/leaving were silent.** Added `participant_joined` /
+  `participant_left` notifications to the host via `notify_participation()`.
 
 ## 3. Status by person
 
@@ -61,8 +73,8 @@ definitive `npm ci` evidence has to come from GitHub Actions on a PR.
 | --- | --- |
 | lint | **exit 0** — no errors, no warnings |
 | typecheck | **exit 0** — `next typegen && tsc --noEmit` |
-| test | **exit 0** — **108 passing, 0 failing, 17 suites** |
-| build | **exit 0** — 9 routes |
+| test | **exit 0** — **119 passing, 0 failing, 19 suites** |
+| build | **exit 0** — 8 routes (includes the new `ƒ /auth/callback`) |
 
 Commands actually used:
 
@@ -183,7 +195,59 @@ rehearsal, and set the Vercel Root Directory to `aggie-playground`.
 
 **Person 1 — done here.** The notification identity leak is fixed in `624f002`.
 
-## 11. Hard rules (unchanged)
+## 11. Supabase setup — the human step
+
+Nothing below can be done by an agent: it needs a real project and real
+credentials. Do **not** paste any value into a chat, and do not let an agent read
+the clipboard, a browser password store, or an OS credential store.
+
+1. Create (or pick) a Supabase project.
+2. In **SQL Editor**, run the whole of
+   `aggie-playground/supabase/migrations/0001_init.sql`
+   from this branch. If the project already ran an older `0001`, do **not**
+   re-run it (the tables lack `IF NOT EXISTS`) — run only the blocks listed in
+   §8, plus the `notify_participation()` trigger pair.
+3. **Authentication → URL Configuration**:
+   - Site URL: `http://localhost:3001`
+   - Redirect URLs: add **all four**
+     `http://localhost:3001/auth/callback`
+     `http://127.0.0.1:3001/auth/callback`
+     `http://localhost:3000/auth/callback`
+     `http://127.0.0.1:3000/auth/callback`
+   The callback path is mandatory — Supabase returns `?code=…` and only that
+   route can exchange it. Include both hostnames: the dev server is reachable as
+   both `localhost` and `127.0.0.1`, and `emailRedirectTo` is built from
+   `window.location.origin`, so whichever one the browser used must be allowlisted.
+4. **Authentication → Providers → Email**: magic link / OTP enabled. If
+   "Confirm email" is on, the link is what signs you in, which is what we want.
+5. Create the file (never commit it):
+   `D:\300_Workspace\B@BHacks 2.0\_wt-sprint\aggie-playground\.env.local`
+   containing exactly:
+   ```env
+   NEXT_PUBLIC_SUPABASE_URL=
+   NEXT_PUBLIC_SUPABASE_ANON_KEY=
+   ```
+   The **anon/publishable** key only. Never the service-role key — anything
+   prefixed `NEXT_PUBLIC_` is inlined into the browser bundle.
+
+Then reply: `Supabase已创建，migration已执行，env.local已填写`.
+
+Next actions are §12.
+
+## 12. After the credentials exist
+
+1. Restart **only** the port 3001 dev server (`Stop-Process -Id <3001 pid>`),
+   never a blanket node kill.
+2. Confirm the pages no longer say "Backend not connected".
+3. Run `aggie-playground/supabase/tests/rls_smoke.sql` by hand in the SQL
+   Editor. It rolls back and writes nothing. **RLS only counts as verified once
+   `ALL CHECKS PASSED` is actually observed.**
+4. Two-account browser E2E (A hosts → B joins → A sees the count change without
+   a manual refresh → duplicate join blocked → leave → capacity guard → tests
+   1–16 in the sprint brief).
+5. Then Context.dev, then the final PR and CI, then Vercel.
+
+## 13. Hard rules (unchanged)
 
 - Never push to `main`; never force-push; merge only through a PR reviewed by
   Person 5.
