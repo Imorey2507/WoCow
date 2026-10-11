@@ -9,6 +9,9 @@ your page updates instantly.
 Built by a five-person team for a hackathon, with one shared GitHub repo, one
 shared Supabase database and one Vercel deployment.
 
+> **Team HackHack** — Berkeley hackathon, 11 October 2026.
+> Upstream repository: https://github.com/Imorey2507/WoCow
+
 ---
 
 ## Stack
