@@ -32,6 +32,15 @@ interface NotesState {
 
 const NO_NOTES: NotesState = { viewerId: null, notes: [], error: null, loading: false, retrying: false };
 
+/** Unknown kinds fall back to a generic icon rather than rendering nothing. */
+const NOTIFICATION_ICON: Record<string, string> = {
+  new_activity: "🆕",
+  activity_updated: "✏️",
+  activity_cancelled: "❌",
+  participant_joined: "🙌",
+  participant_left: "👋",
+};
+
 export default function ProfilePage() {
   const { user, profile, loading, setAuthOpen, refreshProfile, signOut } = useAuth();
   const { activities, joinedIds } = useActivities();
@@ -282,7 +291,7 @@ export default function ProfilePage() {
                 <li key={n.id}>
                   <button onClick={() => void markRead(n.id)} className={`sticker-sm w-full rounded-2xl p-3 text-left ${n.read ? "bg-white/70" : "bg-white"}`}>
                     <div className="flex items-center justify-between gap-2">
-                      <span className="font-display font-bold">{n.kind === "activity_cancelled" ? "❌" : n.kind === "activity_updated" ? "✏️" : "🆕"} {n.title}</span>
+                      <span className="font-display font-bold">{NOTIFICATION_ICON[n.kind] ?? "🆕"} {n.title}</span>
                       {!n.read && <span className="h-2.5 w-2.5 shrink-0 rounded-full bg-coral" aria-label="unread" />}
                     </div>
                     {n.body && <p className="text-sm font-semibold text-ink/75">{n.body}</p>}

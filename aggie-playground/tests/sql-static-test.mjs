@@ -115,4 +115,30 @@ describe("hardening markers are present", () => {
     assert.match(smoke, /^begin;/im);
     assert.match(smoke, /^rollback;/im);
   });
+
+  test("join and leave notify the host, so those events are not silent", () => {
+    assert.match(migration, /create trigger participants_notify_join after insert on public\.participants/i);
+    assert.match(migration, /create trigger participants_notify_leave after delete on public\.participants/i);
+
+    const fn = fnSource(migration, "notify_participation");
+    assert.ok(fn.length > 0, "notify_participation not found");
+    assert.match(fn, /security definer/i, "it writes to notifications, which has no INSERT policy");
+    assert.match(fn, /participant_joined/);
+    assert.match(fn, /participant_left/);
+    // The host's own auto-join row must not generate "someone joined".
+    assert.match(fn, /actor = a\.host_id/);
+    // A notification problem must never abort the join itself.
+    assert.match(fn, /if not found then return null; end if;/);
+  });
+
+  test("the notification kind CHECK allows every kind the app can receive", () => {
+    const check = migration.match(/kind text not null check \(kind in \(([^)]*)\)\)/i)?.[1] ?? "";
+    for (const kind of ["new_activity", "activity_updated", "activity_cancelled", "participant_joined", "participant_left"]) {
+      assert.ok(check.includes(kind), `notifications.kind is missing "${kind}"`);
+    }
+    const kinds = readFileSync(resolve(HERE, "..", "src", "lib", "types.ts"), "utf8");
+    for (const kind of ["new_activity", "activity_updated", "activity_cancelled", "participant_joined", "participant_left"]) {
+      assert.ok(kinds.includes(kind), `NotificationKind is missing "${kind}"`);
+    }
+  });
 });

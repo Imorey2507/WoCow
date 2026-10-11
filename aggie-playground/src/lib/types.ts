@@ -40,9 +40,16 @@ export interface Profile {
   is_demo: boolean;
 }
 
+export type NotificationKind =
+  | "new_activity"
+  | "activity_updated"
+  | "activity_cancelled"
+  | "participant_joined"
+  | "participant_left";
+
 export interface AppNotification {
   id: string;
-  kind: "new_activity" | "activity_updated" | "activity_cancelled";
+  kind: NotificationKind;
   title: string;
   body: string;
   activity_id: string | null;

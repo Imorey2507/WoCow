@@ -209,7 +209,7 @@ for each row execute function public.enforce_activity_capacity();
 create table public.notifications (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null references public.profiles(id) on delete cascade,
-  kind text not null check (kind in ('new_activity','activity_updated','activity_cancelled')),
+  kind text not null check (kind in ('new_activity','activity_updated','activity_cancelled','participant_joined','participant_left')),
   title text not null,
   body text not null default '',
   activity_id uuid references public.activities(id) on delete cascade,
@@ -254,6 +254,53 @@ begin
 end $$;
 create trigger activities_notify_change after update on public.activities
 for each row execute function public.notify_activity_change();
+
+-- Someone joins or leaves → tell the host. Creating an activity tells interested
+-- students, but nothing told the host that somebody actually signed up.
+--
+-- Both functions are SECURITY DEFINER because notifications has no INSERT policy
+-- (only the read/update ones above). They are written defensively: a missing
+-- activity or profile returns the row unchanged rather than raising, so a
+-- notification problem can never abort the join itself.
+create or replace function public.notify_participation() returns trigger
+language plpgsql security definer set search_path = public as $$
+declare
+  a public.activities%rowtype;
+  actor uuid;
+  who text;
+begin
+  if tg_op = 'DELETE' then
+    actor := old.user_id;
+    select * into a from public.activities where id = old.activity_id;
+  else
+    actor := new.user_id;
+    select * into a from public.activities where id = new.activity_id;
+  end if;
+
+  if not found then return null; end if;
+  -- The host's own auto-join row is not news.
+  if actor = a.host_id then return null; end if;
+
+  select coalesce(nullif(btrim(p.display_name), ''), 'A student') into who
+  from public.profiles p where p.id = actor;
+  if not found then who := 'A student'; end if;
+
+  insert into public.notifications (user_id, kind, title, body, activity_id)
+  values (
+    a.host_id,
+    case when tg_op = 'DELETE' then 'participant_left' else 'participant_joined' end,
+    case when tg_op = 'DELETE' then 'Someone left: ' else 'Someone joined: ' end || a.title,
+    who || case when tg_op = 'DELETE' then ' left your activity.' else ' joined your activity.' end,
+    a.id
+  );
+  return null;
+end $$;
+
+create trigger participants_notify_join after insert on public.participants
+for each row execute function public.notify_participation();
+
+create trigger participants_notify_leave after delete on public.participants
+for each row execute function public.notify_participation();
 
 -- ───────────────────────── buddy requests ─────────────────────────
 create table public.buddy_requests (

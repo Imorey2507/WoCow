@@ -53,9 +53,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [loadProfile]);
 
   const signInWithEmail = useCallback(async (email: string) => {
+    // Point at the PKCE callback route: the email link carries ?code=... and only
+    // /auth/callback can exchange it for a session.
+    const redirectTo = typeof window !== "undefined" ? `${window.location.origin}/auth/callback` : undefined;
     const { error } = await getSupabase().auth.signInWithOtp({
       email,
-      options: { emailRedirectTo: typeof window !== "undefined" ? window.location.origin : undefined },
+      options: { emailRedirectTo: redirectTo },
     });
     return error ? error.message : null;
   }, []);

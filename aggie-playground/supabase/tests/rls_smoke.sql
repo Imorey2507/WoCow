@@ -457,6 +457,57 @@ end $$;
 
 reset role;
 
+-- ── joining and leaving notify the host ──────────────────────────────────────
+
+do $$
+declare n int;
+begin
+  select count(*) into n from public.notifications where kind = 'participant_joined';
+  if n < 1 then
+    raise exception 'FAIL: no participant_joined notification was produced by any join';
+  end if;
+  raise notice 'PASS  joining an activity notifies the host (participant_joined)';
+end $$;
+
+do $$
+declare n int;
+begin
+  select count(*) into n from public.notifications where kind = 'participant_left';
+  if n < 1 then
+    raise exception 'FAIL: no participant_left notification was produced by any exit';
+  end if;
+  raise notice 'PASS  leaving an activity notifies the host (participant_left)';
+end $$;
+
+-- The host is auto-joined by a trigger; that must never read as "somebody joined".
+do $$
+declare n int;
+begin
+  select count(*) into n
+  from public.notifications nt
+  join public.activities a on a.id = nt.activity_id
+  join public.profiles hp on hp.id = a.host_id
+  where nt.kind = 'participant_joined'
+    and nt.user_id = a.host_id
+    and nt.body ilike hp.display_name || ' joined%';
+  if n <> 0 then
+    raise exception 'FAIL: the host was notified about their own auto-join (% rows)', n;
+  end if;
+  raise notice 'PASS  a host is never notified about their own auto-join';
+end $$;
+
+-- Every notification must belong to somebody; a NULL owner would be invisible AND
+-- would leak into nothing, which is worse than useless.
+do $$
+declare n int;
+begin
+  select count(*) into n from public.notifications where user_id is null;
+  if n <> 0 then raise exception 'FAIL: % notifications have no owner', n; end if;
+  raise notice 'PASS  every notification has an owner';
+end $$;
+
+reset role;
+
 -- ── nothing is kept ──────────────────────────────────────────────────────────
 rollback;
 
