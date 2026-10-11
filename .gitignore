@@ -8,6 +8,17 @@ dist-ssr/
 build/
 *.local
 
+# Next.js (aggie-playground — the official app)
+.next/
+out/
+next-env.d.ts
+
+# pnpm artefacts. aggie-playground/ uses npm: its package-lock.json is
+# authoritative. These appear only if somebody runs pnpm inside it locally, and
+# must never be committed alongside the npm lockfile.
+aggie-playground/pnpm-lock.yaml
+aggie-playground/pnpm-workspace.yaml
+
 # Environment — NEVER commit real keys
 .env
 .env.local

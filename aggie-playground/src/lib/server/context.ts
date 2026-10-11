@@ -1,15 +1,11 @@
 import "server-only";
+import type { RawEvent } from "@/lib/club-normalize";
+
+// Single source of truth for the extractor's output shape lives in
+// @/lib/club-normalize, next to the code that consumes it.
+export type { RawEvent };
 
 const ENDPOINT = "https://api.context.dev/v1/web/scrape";
-
-export interface RawEvent {
-  title?: string | null;
-  organization?: string | null;
-  starts_at?: string | null;
-  location?: string | null;
-  description?: string | null;
-  event_url?: string | null;
-}
 
 export class ContextError extends Error {
   constructor(message: string, public code?: string, public status?: number) {
