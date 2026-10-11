@@ -1,8 +1,23 @@
 # WoCow
 
-This repository contains one app: **Aggie Playground**, a Next.js campus
-activity app with a live map. The app lives in [`aggie-playground/`](aggie-playground/).
-The old Vite app has been removed.
+This repository contains **Aggie Playground**, a UC Davis campus activity app.
+The website and backend live in [`aggie-playground/`](aggie-playground/), and the
+native iPhone app lives in [`ios-app/`](ios-app/). The old Vite app has been
+removed.
+
+## Run the native iPhone app
+
+Install **Expo Go** from the App Store on your iPhone. On your computer, open a
+terminal in `ios-app/` and run:
+
+```bash
+npm ci
+npm start
+```
+
+Scan the QR code with your iPhone camera and open it in Expo Go. The app opens
+to an interactive UC Davis map using Apple Maps; no map API key is needed.
+See [`ios-app/README.md`](ios-app/README.md) for details.
 
 ## Run it locally
 
