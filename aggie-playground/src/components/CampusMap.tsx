@@ -1,9 +1,12 @@
 "use client";
 
 import dynamic from "next/dynamic";
+import { useMemo } from "react";
 import type { Activity } from "@/lib/types";
 import { categoryOf } from "@/lib/categories";
 import { durationLabel, timeLabel } from "@/lib/format";
+import { LOCATION_BY_KEY } from "@/lib/locations";
+import { partitionByPosition } from "@/lib/map";
 import { CategoryTag, JoinButton, StatusBadge } from "./ActivityCard";
 
 const Inner = dynamic(() => import("./CampusMapInner"), {
@@ -25,9 +28,16 @@ export function CampusMap({
   className?: string;
 }) {
   const selected = activities.find((a) => a.id === selectedId) ?? null;
+  // Only hand usable positions to Leaflet. A row with NaN/out-of-range
+  // coordinates would otherwise be drawn at an undefined spot; the page keeps
+  // those activities and lists them instead, flagged as not-on-the-map.
+  const placeable = useMemo(
+    () => partitionByPosition(activities, LOCATION_BY_KEY).placeable,
+    [activities],
+  );
   return (
     <div className={`relative overflow-hidden ${className}`}>
-      <Inner activities={activities} selectedId={selectedId} onSelect={onSelect} interactive={interactive} />
+      <Inner activities={placeable} selectedId={selectedId} onSelect={onSelect} interactive={interactive} />
       {interactive && selected && <PreviewCard a={selected} onClose={() => onSelect(null)} />}
     </div>
   );
@@ -42,7 +52,7 @@ function PreviewCard({ a, onClose }: { a: Activity; onClose: () => void }) {
           <CategoryTag name={a.category} sub={a.subcategory} />
           <StatusBadge a={a} />
         </div>
-        <button onClick={onClose} className="sticker-sm grid h-7 w-7 shrink-0 place-items-center rounded-full bg-cream text-sm font-black" aria-label="Close preview">✕</button>
+        <button type="button" onClick={onClose} className="sticker-sm grid h-7 w-7 shrink-0 place-items-center rounded-full bg-cream text-sm font-black" aria-label="Close preview">✕</button>
       </div>
       <h3 className="mt-2 font-display text-xl font-bold leading-tight">{a.title}</h3>
       <dl className="mt-1 grid grid-cols-2 gap-x-3 gap-y-0.5 text-sm font-bold text-ink/80">
