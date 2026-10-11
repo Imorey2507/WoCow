@@ -250,6 +250,87 @@ begin
   raise notice 'PASS  activities, participants, notifications and posts are all published for realtime';
 end $$;
 
+-- ── the public_profiles projection, as an ANONYMOUS reader ───────────────────
+-- `public_profiles` is a view WITHOUT security_invoker, so it runs with its
+-- owner's rights and deliberately bypasses the RLS on public.profiles. That is
+-- the intended design — the CASE expressions are the protection — but it is
+-- also the classic RLS-leak shape, so pin down exactly what it exposes.
+reset role;
+select set_config('request.jwt.claim.sub', '', true);
+set local role anon;
+
+do $$
+declare
+  n int;
+  masked_bio text;
+  masked_favs text[];
+begin
+  -- 1. The base table must be completely unreachable for an anonymous reader.
+  select count(*) into n from public.profiles;
+  if n <> 0 then raise exception 'FAIL: anon can read public.profiles directly (% rows)', n; end if;
+  raise notice 'PASS  anon cannot read the profiles base table at all';
+
+  -- 2. The curated projection is readable.
+  select count(*) into n from public.public_profiles;
+  if n < 1 then raise exception 'FAIL: anon cannot read public_profiles'; end if;
+  raise notice 'PASS  anon can read the public_profiles projection';
+
+  -- 3. Non-discoverable profile: interests and bio are masked even though the
+  --    row genuinely holds them (aa01 favourited 'Competitive Sports' above).
+  select bio, favorite_categories into masked_bio, masked_favs
+    from public.public_profiles
+   where id = '00000000-0000-0000-0000-0000000000aa01';
+
+  if masked_bio <> '' then
+    raise exception 'FAIL: bio leaked for a non-discoverable profile: %', masked_bio;
+  end if;
+  if masked_favs <> '{}'::text[] then
+    raise exception 'FAIL: favorite_categories leaked for a non-discoverable profile: %', masked_favs;
+  end if;
+  raise notice 'PASS  a non-discoverable profile exposes no bio and no interests';
+end $$;
+
+-- Flip that student to discoverable, as the owner would.
+reset role;
+update public.profiles set discoverable = true, bio = 'Come play basketball with me'
+ where id = '00000000-0000-0000-0000-0000000000aa01';
+set local role anon;
+
+do $$
+declare
+  n int;
+  shown_bio text;
+  shown_favs text[];
+begin
+  -- 4. Opting in DOES expose the fields — otherwise the masking above would be
+  --    indistinguishable from the view being broken.
+  select bio, favorite_categories into shown_bio, shown_favs
+    from public.public_profiles
+   where id = '00000000-0000-0000-0000-0000000000aa01';
+
+  if shown_bio <> 'Come play basketball with me' then
+    raise exception 'FAIL: an opted-in student''s bio is not visible (got %)', shown_bio;
+  end if;
+  if shown_favs <> array['Competitive Sports']::text[] then
+    raise exception 'FAIL: an opted-in student''s interests are not visible (got %)', shown_favs;
+  end if;
+  raise notice 'PASS  opting in to matching does expose bio and interests';
+
+  -- 5. The view is a curated projection, not `select *`. created_at exists on
+  --    public.profiles and must NOT be reachable through the view.
+  select count(*) into n
+    from information_schema.columns
+   where table_schema = 'public'
+     and table_name = 'public_profiles'
+     and column_name = 'created_at';
+  if n <> 0 then
+    raise exception 'FAIL: public_profiles exposes created_at — it is not a curated projection';
+  end if;
+  raise notice 'PASS  public_profiles is a curated projection, not a passthrough of profiles';
+end $$;
+
+reset role;
+
 -- ── nothing is kept ──────────────────────────────────────────────────────────
 rollback;
 
