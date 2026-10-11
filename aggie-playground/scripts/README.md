@@ -4,10 +4,8 @@ Standalone Node scripts used to develop and probe the Context.dev integration.
 **They are not part of the Next.js app's build**, and nothing in `src/` imports
 them.
 
-These three files were originally committed to the repository root as
-`src/categories.ts`, `src/contextdev.ts` and `src/run.ts`, where they sat inside
-the *other* app's (`wocow/`, Vite) source directory and broke its TypeScript
-check. They were moved here on 2026-10-11 so each app owns its own `src/`.
+These scripts are kept separate from the Next.js application source because
+they are exploratory CLI tools, not part of the deployed app.
 
 | File | What it is |
 | --- | --- |
