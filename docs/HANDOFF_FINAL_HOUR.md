@@ -4,7 +4,7 @@
 > history. Everything here is verifiable from Git. **Do not trust the SHAs in
 > this file without re-checking them** — they were true when written.
 
-Last updated: after commit `624f002`.
+Last updated: after commit `9c2814c` (Person 4 review).
 
 ---
 
@@ -14,9 +14,9 @@ Last updated: after commit `624f002`.
 | --- | --- |
 | Worktree | `D:\300_Workspace\B@BHacks 2.0\_wt-sprint` |
 | Branch | `sprint/final-hour` |
-| HEAD at time of writing | `624f002b0fc6cddf53a1cbc80eee59a13a02c211` |
+| HEAD at time of writing | `9c2814c3ff441a45a07ef9e7e01cb5a5b56279e0` |
 | Base | `origin/main` = `4d2158b3ff9fb1d1e249acf94aef2a13ad32f2c4` |
-| Ahead of main by | 3 commits (0 behind) |
+| Ahead of main by | 5 commits (0 behind) |
 
 The sprint branch deliberately uses its **own worktree** so the older
 `feature/frontend` worktree and its preview on port 3000 are undisturbed.
@@ -33,6 +33,8 @@ Other worktrees that exist and must not be deleted:
 ## 2. Commits on this branch
 
 ```
+9c2814c  Close Person 4 matching integration gaps                (Person 4 review)
+dd6936d  Add the final-hour handoff document
 624f002  Bind profile notifications to the signed-in viewer     (Person 1 follow-up fix)
 043e17a  Harden Person 3 activity writes and capacity rules     (Person 3)
 668c5ea  Complete Person 2 campus map experience                (Person 2)
@@ -46,7 +48,7 @@ Other worktrees that exist and must not be deleted:
 | 1 | Discover / Profile / UI states | **Merged to main** via PR #4 (`4d2158b`). Identity leak fixed on this branch in `624f002`. |
 | 2 | Map | **Done on this branch** in `668c5ea`. |
 | 3 | Backend: RLS, RPC, capacity | **Done on this branch** in `043e17a`. |
-| 4 | Buddies / matching | **Not started.** |
+| 4 | Buddies / matching | **Reviewed and patched on this branch** in `9c2814c`. Ten of twelve checks passed as-is; unconfigured state and viewer-owned action state were fixed. |
 | 5 | Final integration PR, docs, Vercel | **Not started.** |
 
 ## 4. Verification results (real exit codes)
@@ -59,7 +61,7 @@ definitive `npm ci` evidence has to come from GitHub Actions on a PR.
 | --- | --- |
 | lint | **exit 0** — no errors, no warnings |
 | typecheck | **exit 0** — `next typegen && tsc --noEmit` |
-| test | **exit 0** — **102 passing, 0 failing, 17 suites** |
+| test | **exit 0** — **108 passing, 0 failing, 17 suites** |
 | build | **exit 0** — 9 routes |
 
 Commands actually used:
@@ -163,9 +165,16 @@ into `aggie-playground/`** — npm owns that directory.
 
 ## 10. What is left
 
-**Person 4 — buddies.** Not started. Needs the mismatch between the frozen Vite
-schema and the official one checked, and `public_profiles` discoverability
-reasoning re-verified against the real schema.
+**Person 4 — buddies.** Reviewed in `9c2814c`. Two gaps closed: `/buddies` had
+no unconfigured state (it offered a sign-in that could not work), and the
+in-flight action marker was not owned by a viewer, so A's "Sending…" could
+disable B's buttons. Confirmed unchanged and correct: reads go only to
+`public_profiles`, the field allowlist has no email and matches the view
+exactly, `discoverable=false` and the current user are filtered in both the
+query and `rankBuddies`, responses are tagged by viewer with `AbortController`
+cancellation, sends are guarded by a latch plus the `23505` unique constraint,
+and every sort has an `id` tiebreak. **Not verified:** any of it against a real
+database.
 
 **Person 5 — final integration.** One single PR `sprint/final-hour → main`; that
 is also the first place `npm ci` gets real remote evidence. Also: reconcile the
