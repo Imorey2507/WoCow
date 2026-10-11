@@ -12,7 +12,7 @@
  */
 import { describe, test } from "node:test";
 import assert from "node:assert/strict";
-import { capacityPercent, feedState, joinButtonState, spotsLabel } from "../src/lib/ui.ts";
+import { capacityPercent, feedState, joinButtonState, notesForViewer, spotsLabel } from "../src/lib/ui.ts";
 
 describe("joinButtonState", () => {
   const base = { isHost: false, joined: false, full: false, busy: false };
@@ -157,5 +157,85 @@ describe("feedState", () => {
 
   test("rows matching nothing but filters off is still 'empty'", () => {
     assert.equal(feedState({ ...base, visibleCount: 0, hasActiveFilters: false }), "empty");
+  });
+});
+
+describe("notesForViewer — private state never crosses identities", () => {
+  const A = "user-a";
+  const B = "user-b";
+  const rows = [{ id: "n1", title: "A's private notification" }];
+
+  function input(overrides = {}) {
+    return {
+      stateViewerId: A,
+      currentViewerId: A,
+      notes: rows,
+      error: null,
+      loading: false,
+      retrying: false,
+      ...overrides,
+    };
+  }
+
+  test("renders when the payload belongs to the current viewer", () => {
+    const v = notesForViewer(input());
+    assert.equal(v.isForCurrentViewer, true);
+    assert.deepEqual(v.notes, rows);
+  });
+
+  test("A's notifications are not rendered after B signs in", () => {
+    const v = notesForViewer(input({ currentViewerId: B }));
+    assert.equal(v.isForCurrentViewer, false);
+    assert.deepEqual(v.notes, [], "previous identity's rows must not be returned");
+  });
+
+  test("A's notifications are not rendered after A signs out", () => {
+    const v = notesForViewer(input({ currentViewerId: null }));
+    assert.equal(v.isForCurrentViewer, false);
+    assert.deepEqual(v.notes, []);
+  });
+
+  test("a payload loaded for nobody is not shown to a newly signed-in viewer", () => {
+    const v = notesForViewer(input({ stateViewerId: null, currentViewerId: A, notes: [] }));
+    assert.equal(v.isForCurrentViewer, false);
+  });
+
+  test("A's error is not shown to B — including while B is still loading", () => {
+    const stale = notesForViewer(input({ currentViewerId: B, notes: [], error: "A failed to load" }));
+    assert.equal(stale.error, null);
+    assert.equal(stale.loading, false);
+    assert.equal(stale.retrying, false);
+  });
+
+  test("A's in-flight loading state does not make B look busy", () => {
+    const v = notesForViewer(input({ currentViewerId: B, notes: [], loading: true }));
+    assert.equal(v.loading, false);
+  });
+
+  test("A's Retry busy state does not disable or label B's button", () => {
+    const v = notesForViewer(input({ currentViewerId: B, retrying: true }));
+    assert.equal(v.retrying, false);
+    assert.equal(v.isForCurrentViewer, false);
+  });
+
+  test("all four fields are released together, never partially", () => {
+    const v = notesForViewer(input({ currentViewerId: B, loading: true, retrying: true, error: "boom" }));
+    assert.deepEqual(v, { notes: [], error: null, loading: false, retrying: false, isForCurrentViewer: false });
+  });
+
+  test("two viewers with identical rows are still distinguished by the tag", () => {
+    // Same shape, different owner: only the id decides.
+    const asA = notesForViewer(input({ stateViewerId: A, currentViewerId: A }));
+    const asB = notesForViewer(input({ stateViewerId: A, currentViewerId: B }));
+    assert.equal(asA.isForCurrentViewer, true);
+    assert.equal(asB.isForCurrentViewer, false);
+    assert.notDeepEqual(asA.notes, asB.notes);
+  });
+
+  test("does not mutate its input", () => {
+    const arg = input();
+    const before = JSON.stringify(arg);
+    notesForViewer(arg);
+    assert.equal(JSON.stringify(arg), before);
   });
 });

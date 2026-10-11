@@ -107,3 +107,48 @@ export function feedState(input: FeedStateInput): FeedState {
   if (visibleCount > 0) return "ready";
   return hasActiveFilters ? "no-matches" : "empty";
 }
+
+// ─────────────────────── viewer-scoped private state ───────────────────────
+
+/**
+ * Notifications belong to exactly ONE viewer.
+ *
+ * The bug this prevents: `notes` used to be plain state, so when A signed out
+ * and B signed in, the render that happened before B's fetch resolved still
+ * held A's rows — and a slow response to A's request could land afterwards and
+ * overwrite B's list. Tagging the payload with the viewer it was loaded for
+ * makes "whose data is this?" structural instead of a matter of timing.
+ *
+ * Whenever the tag does not match the current viewer, this reports nothing at
+ * all — so a previous identity's rows are never rendered, not even for the
+ * single render before the effect re-runs.
+ */
+export interface NotesViewInput<T> {
+  /** The viewer the payload was loaded for. `null` means "nobody". */
+  stateViewerId: string | null;
+  /** The viewer right now. `null` means signed out. */
+  currentViewerId: string | null;
+  notes: T[];
+  error: string | null;
+  loading: boolean;
+  retrying: boolean;
+}
+
+export interface NotesView<T> {
+  notes: T[];
+  error: string | null;
+  loading: boolean;
+  retrying: boolean;
+  /** True only when the payload genuinely belongs to the current viewer. */
+  isForCurrentViewer: boolean;
+}
+
+export function notesForViewer<T>(input: NotesViewInput<T>): NotesView<T> {
+  const { stateViewerId, currentViewerId, notes, error, loading, retrying } = input;
+
+  const isForCurrentViewer = currentViewerId !== null && stateViewerId === currentViewerId;
+  if (!isForCurrentViewer) {
+    return { notes: [], error: null, loading: false, retrying: false, isForCurrentViewer: false };
+  }
+  return { notes, error, loading, retrying, isForCurrentViewer: true };
+}

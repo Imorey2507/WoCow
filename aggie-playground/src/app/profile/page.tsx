@@ -1,9 +1,10 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { getSupabase, supabaseConfigured } from "@/lib/supabase/client";
 import { CATEGORIES } from "@/lib/categories";
+import { notesForViewer } from "@/lib/ui";
 import type { AppNotification } from "@/lib/types";
 import { useAuth } from "@/components/AuthProvider";
 import { useActivities } from "@/components/ActivitiesProvider";
@@ -16,6 +17,20 @@ const EMOJIS = ["🐮", "😎", "🤓", "🏐", "🏀", "🥏", "🎨", "📚", 
 const COLORS = ["#ffd84d", "#7cc4ff", "#7ed68a", "#ff8fa3", "#b9a4ff", "#ffb454"];
 
 const input = "w-full rounded-2xl border-2 border-ink bg-white px-3 py-2.5 text-base font-semibold outline-none focus:ring-4 focus:ring-sun/60";
+
+/**
+ * Private per-viewer state. Everything here is tagged with the viewer it was
+ * loaded for, so a previous identity's rows can never be rendered by accident.
+ */
+interface NotesState {
+  viewerId: string | null;
+  notes: AppNotification[];
+  error: string | null;
+  loading: boolean;
+  retrying: boolean;
+}
+
+const NO_NOTES: NotesState = { viewerId: null, notes: [], error: null, loading: false, retrying: false };
 
 export default function ProfilePage() {
   const { user, profile, loading, setAuthOpen, refreshProfile, signOut } = useAuth();
@@ -31,8 +46,10 @@ export default function ProfilePage() {
   const [discoverable, setDiscoverable] = useState(false);
   const [saving, setSaving] = useState(false);
   const [signingOut, setSigningOut] = useState(false);
-  const [notes, setNotes] = useState<AppNotification[]>([]);
-  const [notesError, setNotesError] = useState<string | null>(null);
+  const [notesState, setNotesState] = useState<NotesState>(NO_NOTES);
+  const notesTicket = useRef(0); // invalidates a response from a previous identity
+  const retryingRef = useRef(false); // a second Retry click cannot refire
+  const viewerId = user?.id ?? null;
 
   // Hydrate the form once per loaded profile (adjusting state during render, not in an effect).
   const [hydratedFor, setHydratedFor] = useState<string | null>(null);
@@ -47,29 +64,82 @@ export default function ProfilePage() {
     setDiscoverable(profile.discoverable);
   }
 
-  const loadNotes = useCallback(async () => {
-    if (!user) return;
+  // Load notifications for ONE named viewer. The ticket turns a slow response
+  // belonging to a previous identity into a no-op instead of an overwrite.
+  const loadNotesFor = useCallback(async (forViewer: string) => {
+    const ticket = ++notesTicket.current;
+    // Tag with the new viewer and drop the old rows straight away, so the
+    // previous identity's notifications are gone before the request returns.
+    setNotesState({ viewerId: forViewer, notes: [], error: null, loading: true, retrying: false });
+
     const { data, error: notesErr } = await getSupabase().from("notifications").select("*").order("created_at", { ascending: false }).limit(30);
-    if (notesErr) {
-      // Previously this failed silently and rendered "All quiet", which reads as
-      // "you have no notifications" rather than "we could not load them".
-      setNotesError(notesErr.message);
-      return;
-    }
-    setNotesError(null);
-    setNotes((data ?? []) as AppNotification[]);
-  }, [user]);
+
+    if (ticket !== notesTicket.current) return; // a newer viewer or request won
+
+    setNotesState((prev) =>
+      prev.viewerId !== forViewer
+        ? prev
+        : {
+            viewerId: forViewer,
+            notes: notesErr ? [] : ((data ?? []) as AppNotification[]),
+            // Failing loudly beats rendering "All quiet", which reads as
+            // "you have no notifications" rather than "we could not load them".
+            error: notesErr ? notesErr.message : null,
+            loading: false,
+            retrying: false,
+          },
+    );
+  }, []);
 
   useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- initial fetch; state is set after the network call resolves
-    void loadNotes();
-    if (!user) return;
+    if (!viewerId) {
+      // Signed out: invalidate anything in flight and clear private state now,
+      // rather than leaving the previous user's rows sitting in memory.
+      notesTicket.current += 1;
+      retryingRef.current = false;
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- clearing private state on sign-out
+      setNotesState(NO_NOTES);
+      return;
+    }
+    let active = true;
+    void loadNotesFor(viewerId);
     const sb = getSupabase();
-    const ch = sb.channel(`notes-${user.id}`).on("postgres_changes", { event: "INSERT", schema: "public", table: "notifications", filter: `user_id=eq.${user.id}` }, () => void loadNotes()).subscribe();
+    const ch = sb
+      .channel(`notes-${viewerId}`)
+      .on("postgres_changes", { event: "INSERT", schema: "public", table: "notifications", filter: `user_id=eq.${viewerId}` }, () => {
+        // A previous viewer's realtime callback must never write into the current
+        // viewer's state. `active` goes false in the cleanup below.
+        if (active) void loadNotesFor(viewerId);
+      })
+      .subscribe();
     return () => {
+      active = false;
       void sb.removeChannel(ch);
     };
-  }, [user, loadNotes]);
+  }, [viewerId, loadNotesFor]);
+
+  // Retry is viewer-scoped and cannot be fired twice by a double click.
+  const retryNotes = useCallback(async () => {
+    if (!viewerId || retryingRef.current) return;
+    retryingRef.current = true;
+    setNotesState((prev) => (prev.viewerId === viewerId ? { ...prev, retrying: true } : prev));
+    try {
+      await loadNotesFor(viewerId);
+    } finally {
+      retryingRef.current = false;
+      setNotesState((prev) => (prev.viewerId === viewerId ? { ...prev, retrying: false } : prev));
+    }
+  }, [viewerId, loadNotesFor]);
+
+  // Nothing is rendered unless the payload is tagged for the current viewer.
+  const notesView = notesForViewer({
+    stateViewerId: notesState.viewerId,
+    currentViewerId: viewerId,
+    notes: notesState.notes,
+    error: notesState.error,
+    loading: notesState.loading,
+    retrying: notesState.retrying,
+  });
 
   const hosted = useMemo(() => activities.filter((a) => a.host_id === user?.id), [activities, user]);
   const joined = useMemo(() => activities.filter((a) => joinedIds.has(a.id) && a.host_id !== user?.id), [activities, joinedIds, user]);
@@ -115,12 +185,13 @@ export default function ProfilePage() {
   }
 
   async function markRead(id?: string) {
+    if (!viewerId) return;
     const q = getSupabase().from("notifications").update({ read: true });
     await (id ? q.eq("id", id) : q.eq("read", false));
-    void loadNotes();
+    void loadNotesFor(viewerId);
   }
 
-  const unread = notes.filter((n) => !n.read).length;
+  const unread = notesView.notes.filter((n) => !n.read).length;
 
   return (
     <div className="grid gap-8 lg:grid-cols-[minmax(0,26rem)_1fr]">
@@ -194,13 +265,20 @@ export default function ProfilePage() {
             <h2 id="notif" className="font-display text-2xl font-bold">🔔 Notifications {unread > 0 && <span className="ml-1 rounded-full border-2 border-ink bg-coral px-2 py-0.5 align-middle text-sm">{unread}</span>}</h2>
             {unread > 0 && <button onClick={() => void markRead()} className="text-sm font-extrabold underline decoration-2 underline-offset-4">Mark all read</button>}
           </div>
-          {notesError ? (
-            <ErrorState title="Couldn't load notifications" message={notesError} onRetry={() => void loadNotes()} />
-          ) : notes.length === 0 ? (
+          {notesView.error ? (
+            <ErrorState
+              title="Couldn't load notifications"
+              message={notesView.error}
+              onRetry={() => void retryNotes()}
+              retrying={notesView.retrying}
+            />
+          ) : notesView.loading ? (
+            <div className="h-20 animate-pulse rounded-2xl bg-white/60" role="status" aria-busy="true" aria-label="Loading notifications" />
+          ) : notesView.notes.length === 0 ? (
             <EmptyState title="All quiet" hint="Pick favorite categories and you'll be notified when matching activities appear, or when something you joined changes." />
           ) : (
             <ul className="space-y-2">
-              {notes.map((n) => (
+              {notesView.notes.map((n) => (
                 <li key={n.id}>
                   <button onClick={() => void markRead(n.id)} className={`sticker-sm w-full rounded-2xl p-3 text-left ${n.read ? "bg-white/70" : "bg-white"}`}>
                     <div className="flex items-center justify-between gap-2">
