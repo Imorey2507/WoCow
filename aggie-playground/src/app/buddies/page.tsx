@@ -1,66 +1,20 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useMemo } from "react";
 import Link from "next/link";
-import { getSupabase } from "@/lib/supabase/client";
 import { categoryOf } from "@/lib/categories";
-import type { Profile } from "@/lib/types";
 import { useAuth } from "@/components/AuthProvider";
 import { useUI } from "@/components/UIProvider";
 import { EmptyState } from "@/components/ActivityCard";
 import { Cow } from "@/components/Cow";
-
-interface Req {
-  id: string;
-  from_user: string;
-  to_user: string;
-  status: "pending" | "accepted" | "declined";
-}
-
-/** Transparent score: +1 per shared favorite category, +2 per shared preferred activity. */
-function score(me: Profile, other: Profile) {
-  const cats = other.favorite_categories.filter((c) => me.favorite_categories.includes(c));
-  const acts = other.preferred_activities.filter((a) => me.preferred_activities.includes(a));
-  return { cats, acts, total: cats.length + acts.length * 2 };
-}
+import { buddyRelation, rankBuddies } from "@/features/matching/buddies";
+import { useBuddyFeed } from "@/features/matching/useBuddyFeed";
 
 export default function BuddiesPage() {
   const { user, profile, setAuthOpen, loading } = useAuth();
   const { showToast } = useUI();
-  const [others, setOthers] = useState<Profile[]>([]);
-  const [reqs, setReqs] = useState<Req[]>([]);
-  const [names, setNames] = useState<Record<string, Profile>>({});
-  const [ready, setReady] = useState(false);
-
-  const load = useCallback(async () => {
-    if (!user) return;
-    const sb = getSupabase();
-    const [{ data: people }, { data: rq }] = await Promise.all([
-      sb.from("public_profiles").select("*").eq("discoverable", true).neq("id", user.id).limit(100),
-      sb.from("buddy_requests").select("*"),
-    ]);
-    const list = (people ?? []) as Profile[];
-    const rlist = (rq ?? []) as Req[];
-    setOthers(list);
-    setReqs(rlist);
-    // Names of people who requested me but may not be discoverable.
-    const need = rlist.map((r) => (r.from_user === user.id ? r.to_user : r.from_user)).filter((id) => !list.some((p) => p.id === id));
-    if (need.length) {
-      const { data } = await sb.from("public_profiles").select("*").in("id", need);
-      setNames(Object.fromEntries(((data ?? []) as Profile[]).map((p) => [p.id, p])));
-    }
-    setReady(true);
-  }, [user]);
-
-  useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- initial fetch; state is set after the network call resolves
-    void load();
-  }, [load]);
-
-  const ranked = useMemo(() => {
-    if (!profile) return [];
-    return others.map((p) => ({ p, s: score(profile, p) })).sort((a, b) => b.s.total - a.s.total);
-  }, [others, profile]);
+  const { others, reqs, names, ready, error, busy, refresh, connect: send, respond: reply } = useBuddyFeed(user?.id);
+  const ranked = useMemo(() => profile ? rankBuddies(profile, others) : [], [others, profile]);
 
   if (loading) return <div className="h-40 animate-pulse rounded-3xl bg-white/60" />;
   if (!user || !profile)
@@ -73,21 +27,19 @@ export default function BuddiesPage() {
       </div>
     );
 
-  const relation = (id: string) => reqs.find((r) => (r.from_user === user.id && r.to_user === id) || (r.to_user === user.id && r.from_user === id));
+  const relation = (id: string) => buddyRelation(reqs, user.id, id);
 
   async function connect(id: string) {
-    const { error } = await getSupabase().from("buddy_requests").insert({ from_user: user!.id, to_user: id });
-    showToast(error ? (error.message.includes("duplicate") ? "Request already sent" : error.message) : "Buddy request sent 🤝");
-    void load();
+    const error = await send(id);
+    showToast(error ?? "Buddy request sent 🤝");
   }
   async function respond(id: string, status: "accepted" | "declined") {
-    const { error } = await getSupabase().from("buddy_requests").update({ status }).eq("id", id);
-    showToast(error ? error.message : status === "accepted" ? "You're buddies! 🎉" : "Request declined");
-    void load();
+    const error = await reply(id, status);
+    showToast(error ?? (status === "accepted" ? "You're buddies! 🎉" : "Request declined"));
   }
 
-  const incoming = reqs.filter((r) => r.to_user === user.id && r.status === "pending");
-  const buddies = reqs.filter((r) => r.status === "accepted");
+  const incoming = reqs.filter((r) => r.to_user === user.id && r.status === "pending" && relation(r.from_user)?.id === r.id);
+  const buddies = reqs.filter((r) => r.status === "accepted" && relation(r.from_user === user.id ? r.to_user : r.from_user)?.id === r.id);
   const nameOf = (id: string) => others.find((p) => p.id === id) ?? names[id];
 
   return (
@@ -97,12 +49,19 @@ export default function BuddiesPage() {
         <p className="font-semibold text-ink/75">Gym buddies, study partners, teammates. Only students who opted in appear here. Score = +1 per shared category, +2 per shared activity.</p>
       </div>
 
+      {error && (
+        <div role="alert" className="rounded-2xl border-2 border-ink bg-coral/40 p-3 font-bold">
+          Couldn&apos;t refresh matches: {error}
+          <button onClick={() => void refresh()} className="ml-3 underline">Retry</button>
+        </div>
+      )}
+
       {!profile.discoverable && (
         <div className="sticker-sm rounded-3xl bg-sun/70 p-4 font-bold">
           You&apos;re hidden from others right now. <Link href="/profile" className="underline decoration-2 underline-offset-4">Opt in on your profile</Link> if you want to be found.
         </div>
       )}
-      {profile.favorite_categories.length === 0 && (
+      {profile.favorite_categories.length === 0 && profile.preferred_activities.length === 0 && (
         <div className="sticker-sm rounded-3xl bg-white p-4 font-bold">
           Pick favorite categories on <Link href="/profile" className="underline decoration-2 underline-offset-4">your profile</Link> to get ranked matches.
         </div>
@@ -118,8 +77,8 @@ export default function BuddiesPage() {
                 <li key={r.id} className="sticker-sm flex items-center justify-between gap-3 rounded-2xl bg-white p-3">
                   <span className="font-bold">{p?.avatar_emoji ?? "🐮"} {p?.display_name ?? "An Aggie"} wants to connect</span>
                   <span className="flex gap-2">
-                    <button onClick={() => void respond(r.id, "accepted")} className="sticker-sm pop rounded-full bg-grass px-3 py-1 text-sm font-extrabold">Accept</button>
-                    <button onClick={() => void respond(r.id, "declined")} className="sticker-sm pop rounded-full bg-white px-3 py-1 text-sm font-extrabold">Decline</button>
+                    <button disabled={busy !== null} onClick={() => void respond(r.id, "accepted")} className="sticker-sm pop rounded-full bg-grass px-3 py-1 text-sm font-extrabold disabled:opacity-60">{busy === r.id ? "Updating…" : "Accept"}</button>
+                    <button disabled={busy !== null} onClick={() => void respond(r.id, "declined")} className="sticker-sm pop rounded-full bg-white px-3 py-1 text-sm font-extrabold disabled:opacity-60">Decline</button>
                   </span>
                 </li>
               );
@@ -144,8 +103,13 @@ export default function BuddiesPage() {
         <h2 id="disc" className="mb-3 font-display text-2xl font-bold">People who share your interests</h2>
         {!ready ? (
           <div className="h-32 animate-pulse rounded-3xl bg-white/60" />
+        ) : error && others.length === 0 ? (
+          <EmptyState title="Matches unavailable" hint="Retry above to load students and requests." />
         ) : ranked.length === 0 ? (
-          <EmptyState title="No one else has opted in yet" hint="As soon as other students turn on matching, they'll show up here. Invite a friend!" />
+          <EmptyState
+            title={others.length ? "No shared interests yet" : "No one else has opted in yet"}
+            hint={others.length ? "Update your favorite categories and preferred activities on your profile, or check back as more students join." : "As soon as other students turn on matching, they'll show up here. Invite a friend!"}
+          />
         ) : (
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {ranked.map(({ p, s }) => {
@@ -162,16 +126,18 @@ export default function BuddiesPage() {
                   {p.bio && <p className="line-clamp-2 text-sm font-semibold text-ink/75">{p.bio}</p>}
                   <p className="text-xs font-extrabold text-ink/60">Interested in</p>
                   <div className="flex flex-wrap gap-1">
-                    {[...p.favorite_categories.map((c) => ({ label: `${categoryOf(c).emoji} ${c}`, shared: s.cats.includes(c) })), ...p.preferred_activities.map((a) => ({ label: a, shared: s.acts.includes(a) }))].slice(0, 8).map((t) => (
+                    {[...p.favorite_categories.map((c) => ({ label: `${categoryOf(c).emoji} ${c}`, shared: s.cats.includes(c) })), ...p.preferred_activities.map((a) => ({ label: a, shared: s.acts.includes(a) }))].sort((a, b) => Number(b.shared) - Number(a.shared)).slice(0, 8).map((t) => (
                       <span key={t.label} className={`rounded-full border-2 border-ink px-2 py-0.5 text-xs font-extrabold ${t.shared ? "bg-grass" : "bg-cream"}`}>{t.label}</span>
                     ))}
                   </div>
                   <div className="mt-auto flex items-center justify-between pt-1">
-                    <span className="text-sm font-extrabold">{s.cats.length + s.acts.length} shared interest{s.cats.length + s.acts.length === 1 ? "" : "s"}</span>
+                    <span className="text-sm font-extrabold" title={`${s.cats.length} shared categories + 2 × ${s.acts.length} shared activities`}>
+                      {s.cats.length + s.acts.length} shared interest{s.cats.length + s.acts.length === 1 ? "" : "s"} · {s.total} points
+                    </span>
                     {rel ? (
                       <span className="rounded-full border-2 border-ink bg-cream px-3 py-1 text-sm font-extrabold">{rel.status === "accepted" ? "Buddies ✓" : rel.status === "declined" ? "Declined" : rel.from_user === user.id ? "Request sent" : "Wants to connect"}</span>
                     ) : (
-                      <button onClick={() => void connect(p.id)} className="sticker-sm pop rounded-full bg-sky px-4 py-1.5 font-display font-bold">Connect</button>
+                      <button disabled={busy !== null} onClick={() => void connect(p.id)} className="sticker-sm pop rounded-full bg-sky px-4 py-1.5 font-display font-bold disabled:opacity-60">{busy === p.id ? "Sending…" : "Connect"}</button>
                     )}
                   </div>
                 </article>

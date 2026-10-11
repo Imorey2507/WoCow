@@ -7,9 +7,10 @@ import { ActivityCard, EmptyState } from "@/components/ActivityCard";
 import { CategoryChips, StatusToggle, applyFilters, DEFAULT_FILTERS, type FilterState } from "@/components/Filters";
 import { ClubsSection } from "@/components/ClubsSection";
 import { Discussions } from "@/components/Discussions";
+import { useActivityMatches } from "@/features/matching/useActivityMatches";
 
 export default function DiscoverPage() {
-  const { activities, loading } = useActivities();
+  const { activities, joinedIds, loading, error } = useActivities();
   const { profile } = useAuth();
   const [filters, setFilters] = useState<FilterState>(DEFAULT_FILTERS);
 
@@ -17,12 +18,7 @@ export default function DiscoverPage() {
   const live = filtered.filter((a) => a.live_status === "live");
   const soon = filtered.filter((a) => a.live_status === "upcoming");
 
-  // Transparent recommendation: activities in your favorite categories, soonest first.
-  const favs = useMemo(() => profile?.favorite_categories ?? [], [profile]);
-  const recommended = useMemo(
-    () => (favs.length ? activities.filter((a) => favs.includes(a.category) && a.spots_remaining > 0).slice(0, 6) : []),
-    [activities, favs],
-  );
+  const recommended = useActivityMatches(activities, profile, joinedIds);
 
   const grid = "grid gap-4 sm:grid-cols-2 lg:grid-cols-3";
 
@@ -35,6 +31,8 @@ export default function DiscoverPage() {
           <a href="#discussions" className="sticker-sm pop rounded-full bg-sky px-3 py-1">Discussions</a>
         </nav>
       </div>
+
+      {error && <p role="alert" className="rounded-2xl border-2 border-ink bg-coral/40 p-3 font-bold">Couldn&apos;t load activities: {error}</p>}
 
       <div className="space-y-3">
         <input
@@ -49,11 +47,16 @@ export default function DiscoverPage() {
         <StatusToggle value={filters.status} onChange={(status) => setFilters((f) => ({ ...f, status }))} />
       </div>
 
-      {favs.length > 0 && recommended.length > 0 && (
+      {recommended.length > 0 && (
         <section aria-labelledby="rec">
           <h2 id="rec" className="mb-3 font-display text-2xl font-bold">✨ Recommended for You</h2>
-          <p className="-mt-2 mb-3 text-sm font-bold text-ink/70">Because you picked: {favs.join(", ")}</p>
-          <div className={grid}>{recommended.map((a) => <ActivityCard key={a.id} a={a} />)}</div>
+          <p className="-mt-2 mb-3 text-sm font-bold text-ink/70">Based on your favorite categories and preferred activities, starting time, and open spots.</p>
+          <div className={grid}>{recommended.map(({ activity, score, reasons }) => (
+            <div key={activity.id} className="flex flex-col gap-2">
+              <p className="text-sm font-extrabold text-ink/75">Match score: {score}/100 · {reasons.join(" · ")}</p>
+              <ActivityCard a={activity} />
+            </div>
+          ))}</div>
         </section>
       )}
 
