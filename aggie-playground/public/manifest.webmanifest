@@ -1,0 +1,13 @@
+{
+  "name": "Aggie Playground",
+  "short_name": "Aggie Play",
+  "description": "Discover what's happening around UC Davis, join spontaneous activities, and meet your people.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#fff6e0",
+  "theme_color": "#ffd84d",
+  "icons": [
+    { "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" },
+    { "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "maskable" }
+  ]
+}
