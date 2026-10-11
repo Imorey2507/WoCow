@@ -212,3 +212,60 @@ describe('similarity + recommendations', () => {
     expect(result.map((r) => r.id)).not.toContain('target')
   })
 })
+
+describe('matching edge cases', () => {
+  it('removes events at the exact ending boundary', () => {
+    const event = makeActivity({ starts_at: '2025-03-08T10:00:00Z', ends_at: NOW.toISOString() })
+    expect(matchActivities([event], basePrefs, { now: NOW })).toEqual([])
+    expect(matchActivities([event], basePrefs, { now: NOW, excludePast: false })).toHaveLength(1)
+  })
+
+  it('rejects invalid and reversed event windows', () => {
+    for (const event of [makeActivity({ ends_at: 'invalid' }), makeActivity({ starts_at: '2026-01-01' })]) {
+      expect(matchActivities([event], basePrefs, { now: NOW })).toEqual([])
+      expect(timingScore(event.starts_at, event.ends_at, NOW)).toBe(0)
+    }
+  })
+
+  it('does not invent interests or a waitlist', () => {
+    const result = scoreActivity(makeActivity({ is_full: true }), { interests: [] }, NOW)
+    expect(result.reasons).not.toContain('You like basketball')
+    expect(result.reasons).toContain('Full')
+    expect(result.reasons.some((reason) => reason.includes('waitlist'))).toBe(false)
+  })
+
+  it('distinguishes the first interest from lower ranked interests', () => {
+    const result = scoreActivity(makeActivity({ category: 'study' }),
+      { interests: ['basketball', 'study', 'music', 'food'] }, NOW)
+    expect(result.reasons).toContain('You like study')
+    expect(result.reasons).not.toContain('Matches your top interest')
+  })
+
+  it('explains running activities accurately', () => {
+    const result = scoreActivity(makeActivity({ starts_at: '2025-03-08T11:00:00Z' }), basePrefs, NOW)
+    expect(result.reasons).toContain('Happening now')
+    expect(result.reasons).not.toContain('Starting very soon')
+  })
+
+  it('uses neutral distance for invalid coordinates', () => {
+    const result = scoreActivity(makeActivity(), { interests: [], latitude: 100, longitude: 0 }, NOW)
+    expect(result.distanceKm).toBeNull()
+    expect(result.breakdown.distance).toBe(0.5)
+    expect(distanceScore(NaN, 5)).toBe(0.5)
+    expect(distanceScore(2, Infinity)).toBe(0.5)
+  })
+
+  it('orders exact ties consistently even when feed order changes', () => {
+    const events = [makeActivity({ id: 'b' }), makeActivity({ id: 'a' })]
+    expect(matchActivities(events, basePrefs, { now: NOW }).map((x) => x.activity.id)).toEqual(['a', 'b'])
+    expect(matchActivities([...events].reverse(), basePrefs, { now: NOW }).map((x) => x.activity.id)).toEqual(['a', 'b'])
+  })
+
+  it('never mutates the feed or returns entries for a negative limit', () => {
+    const events = [makeActivity({ id: 'b' }), makeActivity({ id: 'a' })]
+    matchActivities(events, basePrefs, { now: NOW })
+    expect(events.map((x) => x.id)).toEqual(['b', 'a'])
+    expect(matchActivities(events, basePrefs, { now: NOW, limit: -1 })).toEqual([])
+    expect(recommendSimilar(events[0], events, -1)).toEqual([])
+  })
+})

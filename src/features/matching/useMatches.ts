@@ -8,13 +8,15 @@
  *
  * All the real logic lives in matchActivities.ts, which stays pure and tested.
  */
-import { useMemo } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import type { ActivityFeedRow, UserPreferences } from '../../lib/types'
 import { matchActivities, type MatchOptions } from './matchActivities'
 import type { ScoredActivity } from './scoring'
 
 export interface UseMatchesResult {
   matches: ScoredActivity[]
+  /** Active, joinable recommendations even when Discover includes past/full rows. */
+  recommendations: ScoredActivity[]
   /** The single best match, or null when nothing qualifies. */
   topMatch: ScoredActivity | null
   /** Convenience: just the activities, in ranked order. */
@@ -29,12 +31,25 @@ export function useMatches(
   // Destructure the options so the dependency list is primitive values only —
   // an inline `{}` literal would otherwise re-run the ranking on every render.
   const { now, excludePast, excludeFull, minScore, limit } = options
-  const interestsKey = preferences.interests.join('|')
+  const interestsKey = JSON.stringify(preferences.interests)
+  const [clock, setClock] = useState(() => new Date())
+  useEffect(() => {
+    if (now !== undefined) return
+    const refresh = () => setClock(new Date())
+    refresh()
+    const timer = setInterval(refresh, 30_000)
+    window.addEventListener('focus', refresh)
+    return () => {
+      clearInterval(timer)
+      window.removeEventListener('focus', refresh)
+    }
+  }, [now])
+  const effectiveNow = now ?? clock
 
   const matches = useMemo(
     () =>
       matchActivities(activities, preferences, {
-        now,
+        now: effectiveNow,
         excludePast,
         excludeFull,
         minScore,
@@ -47,7 +62,7 @@ export function useMatches(
       preferences.latitude,
       preferences.longitude,
       preferences.maxDistanceKm,
-      now,
+      effectiveNow,
       excludePast,
       excludeFull,
       minScore,
@@ -55,10 +70,18 @@ export function useMatches(
     ],
   )
 
+  const recommendations = useMemo(
+    () => matches.filter(({ activity }) =>
+      new Date(activity.ends_at).getTime() > effectiveNow.getTime() &&
+      (!activity.is_full || activity.is_joined)),
+    [matches, effectiveNow],
+  )
+
   const ranked = useMemo(() => matches.map((match) => match.activity), [matches])
 
   return {
     matches,
+    recommendations,
     topMatch: matches[0] ?? null,
     ranked,
   }

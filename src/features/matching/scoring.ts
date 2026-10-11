@@ -42,6 +42,13 @@ export interface ScoredActivity {
   distanceKm: number | null
 }
 
+/** Coordinates must form a valid pair; missing or corrupt positions are neutral. */
+export function isValidPosition(latitude: unknown, longitude: unknown): boolean {
+  return typeof latitude === 'number' && Number.isFinite(latitude) &&
+    Math.abs(latitude) <= 90 && typeof longitude === 'number' &&
+    Number.isFinite(longitude) && Math.abs(longitude) <= 180
+}
+
 /** Clamps to the 0..1 range. */
 function clamp01(value: number): number {
   if (Number.isNaN(value)) return 0
@@ -73,7 +80,7 @@ export function timingScore(
   const end = new Date(endsAt).getTime()
   const t = now.getTime()
 
-  if (t >= end) return 0
+  if (![start, end, t].every(Number.isFinite) || end <= start || t >= end) return 0
   if (t >= start) return 0.9 // already running: still very relevant
 
   const hoursUntil = (start - t) / 3_600_000
@@ -91,8 +98,8 @@ export function distanceScore(
   distanceKm: number | null,
   maxDistanceKm: number,
 ): number {
-  if (distanceKm === null) return 0.5
-  if (maxDistanceKm <= 0) return 0.5
+  if (distanceKm === null || !Number.isFinite(distanceKm) || distanceKm < 0) return 0.5
+  if (!Number.isFinite(maxDistanceKm) || maxDistanceKm <= 0) return 0.5
   return clamp01(1 - distanceKm / maxDistanceKm)
 }
 
@@ -119,10 +126,11 @@ export function scoreActivity(
   now: Date = new Date(),
 ): ScoredActivity {
   const distanceKm =
-    preferences.latitude !== undefined && preferences.longitude !== undefined
+    isValidPosition(preferences.latitude, preferences.longitude) &&
+    isValidPosition(activity.latitude, activity.longitude)
       ? haversineKm(
-          preferences.latitude,
-          preferences.longitude,
+          preferences.latitude!,
+          preferences.longitude!,
           activity.latitude,
           activity.longitude,
         )
@@ -142,10 +150,12 @@ export function scoreActivity(
     breakdown.space * MATCH_WEIGHTS.space
 
   const reasons: string[] = []
-  if (breakdown.interest >= 0.8) reasons.push('Matches your top interest')
-  else if (breakdown.interest > 0) reasons.push(`You like ${activity.category}`)
+  if (preferences.interests[0] === activity.category) reasons.push('Matches your top interest')
+  else if (preferences.interests.includes(activity.category)) reasons.push(`You like ${activity.category}`)
 
-  if (breakdown.timing >= 0.9) reasons.push('Starting very soon')
+  if (breakdown.timing > 0 && new Date(activity.starts_at).getTime() <= now.getTime()) {
+    reasons.push('Happening now')
+  } else if (breakdown.timing >= 0.9) reasons.push('Starting very soon')
   else if (breakdown.timing >= 0.5) reasons.push('Coming up soon')
 
   if (distanceKm !== null && distanceKm < 0.5) reasons.push('Right by you')
@@ -155,7 +165,7 @@ export function scoreActivity(
 
   if (activity.is_joined) reasons.push('You are going')
   else if (breakdown.space >= 0.7) reasons.push('Good group size')
-  if (activity.is_full && !activity.is_joined) reasons.push('Full — waitlist only')
+  if (activity.is_full && !activity.is_joined) reasons.push('Full')
 
   return {
     activity,
