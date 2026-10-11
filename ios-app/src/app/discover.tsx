@@ -24,7 +24,7 @@ export default function DiscoverScreen() {
   const [post, setPost] = useState("");
   const [posts, setPosts] = useState<string[]>(["Anyone want to study together this afternoon? 📚"]);
   const filtered = useMemo(() => activities.filter((a) => (category === "All" || a.category === category) && `${a.title} ${a.place} ${a.description}`.toLowerCase().includes(query.toLowerCase())), [activities, category, query]);
-  const button = (label: string, onPress: () => void, active = false) => <Pressable onPress={onPress} style={[styles.chip, active && styles.chipActive]}><Text style={styles.chipText}>{label}</Text></Pressable>;
+  const button = (label: string, onPress: () => void, active = false) => <Pressable key={label} onPress={onPress} style={[styles.chip, active && styles.chipActive]}><Text style={styles.chipText}>{label}</Text></Pressable>;
 
   function createActivity() {
     if (title.trim().length < 3) return;
