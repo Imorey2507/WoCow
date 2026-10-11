@@ -10,7 +10,6 @@
  * auth.users(id) once the core flow is stable.
  */
 import { useCallback, useEffect, useState } from 'react'
-import { isValidPosition } from './scoring'
 import type { UserPreferences } from '../../lib/types'
 
 const STORAGE_KEY = 'wocow.preferences.v1'
@@ -20,26 +19,19 @@ const DEFAULT_PREFERENCES: UserPreferences = {
   maxDistanceKm: 5,
 }
 
-export function normalizePreferences(value: unknown): UserPreferences {
-  const parsed = value && typeof value === 'object' ? value as Partial<UserPreferences> : {}
-  const interests = Array.isArray(parsed.interests)
-    ? [...new Set(parsed.interests.filter((item): item is string =>
-        typeof item === 'string' && item.trim().length > 0))] : []
-  const validPosition = isValidPosition(parsed.latitude, parsed.longitude)
-  return {
-    interests,
-    maxDistanceKm: typeof parsed.maxDistanceKm === 'number' && Number.isFinite(parsed.maxDistanceKm)
-      ? Math.min(25, Math.max(0.5, parsed.maxDistanceKm)) : 5,
-    ...(validPosition ? { latitude: parsed.latitude, longitude: parsed.longitude } : {}),
-  }
-}
-
 function readStored(): UserPreferences {
   if (typeof window === 'undefined') return DEFAULT_PREFERENCES
   try {
     const raw = window.localStorage.getItem(STORAGE_KEY)
     if (!raw) return DEFAULT_PREFERENCES
-    return normalizePreferences(JSON.parse(raw))
+    const parsed = JSON.parse(raw) as Partial<UserPreferences>
+    return {
+      interests: Array.isArray(parsed.interests) ? parsed.interests : [],
+      latitude: typeof parsed.latitude === 'number' ? parsed.latitude : undefined,
+      longitude: typeof parsed.longitude === 'number' ? parsed.longitude : undefined,
+      maxDistanceKm:
+        typeof parsed.maxDistanceKm === 'number' ? parsed.maxDistanceKm : 5,
+    }
   } catch {
     // Corrupt or unreadable storage should never break the app.
     return DEFAULT_PREFERENCES
@@ -85,11 +77,10 @@ export function usePreferences(): UsePreferencesResult {
   }, [])
 
   const setMaxDistanceKm = useCallback((km: number) => {
-    setPreferences((current) => normalizePreferences({ ...current, maxDistanceKm: km }))
+    setPreferences((current) => ({ ...current, maxDistanceKm: km }))
   }, [])
 
   const setPosition = useCallback((latitude: number, longitude: number) => {
-    if (!isValidPosition(latitude, longitude)) return
     setPreferences((current) => ({ ...current, latitude, longitude }))
   }, [])
 
@@ -97,26 +88,18 @@ export function usePreferences(): UsePreferencesResult {
     if (typeof navigator === 'undefined' || !navigator.geolocation) return null
 
     return new Promise<{ latitude: number; longitude: number } | null>((resolve) => {
-      try {
-        navigator.geolocation.getCurrentPosition(
-          (position) => {
-            const coords = {
-              latitude: position.coords.latitude,
-              longitude: position.coords.longitude,
-            }
-            if (!isValidPosition(coords.latitude, coords.longitude)) {
-              resolve(null)
-              return
-            }
-            setPosition(coords.latitude, coords.longitude)
-            resolve(coords)
-          },
-          () => resolve(null),
-          { enableHighAccuracy: false, timeout: 8000, maximumAge: 300_000 },
-        )
-      } catch {
-        resolve(null)
-      }
+      navigator.geolocation.getCurrentPosition(
+        (position) => {
+          const coords = {
+            latitude: position.coords.latitude,
+            longitude: position.coords.longitude,
+          }
+          setPosition(coords.latitude, coords.longitude)
+          resolve(coords)
+        },
+        () => resolve(null),
+        { enableHighAccuracy: false, timeout: 8000, maximumAge: 300_000 },
+      )
     })
   }, [setPosition])
 

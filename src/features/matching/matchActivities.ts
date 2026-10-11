@@ -24,7 +24,8 @@ export interface MatchOptions {
 /**
  * Ranks activities for one user.
  *
- * Pure and synchronous: same inputs, same output. No network; pass `now` to avoid reading the clock, which makes it safe to call on every keystroke.
+ * Pure and synchronous: same inputs, same output. No network, no clock reads
+ * unless you pass `now`, which makes it safe to call on every keystroke.
  */
 export function matchActivities(
   activities: ActivityFeedRow[],
@@ -43,10 +44,7 @@ export function matchActivities(
 
   const scored = activities
     .filter((activity) => {
-      const start = new Date(activity.starts_at).getTime()
-      const end = new Date(activity.ends_at).getTime()
-      if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start) return false
-      if (excludePast && end <= nowMs) return false
+      if (excludePast && new Date(activity.ends_at).getTime() < nowMs) return false
       // A full activity the user is already in is still a match for them.
       if (excludeFull && activity.is_full && !activity.is_joined) return false
       return true
@@ -59,15 +57,16 @@ export function matchActivities(
       return (
         new Date(a.activity.starts_at).getTime() -
         new Date(b.activity.starts_at).getTime()
-      ) || a.activity.id.localeCompare(b.activity.id)
+      )
     })
 
-  return typeof limit === 'number' ? scored.slice(0, Math.max(0, Math.floor(limit))) : scored
+  return typeof limit === 'number' ? scored.slice(0, limit) : scored
 }
 
 /**
- * Compares two events by category, overlapping time windows and venue.
- * This compares events only; it does not infer compatibility between people.
+ * Ranks each activity against the *other* people already going, to surface
+ * "you two would get along" pairings. Kept deliberately simple for the MVP:
+ * shared categories plus overlapping time windows.
  */
 export function similarityBetween(
   a: ActivityFeedRow,
@@ -99,7 +98,7 @@ export function recommendSimilar(
     .filter((candidate) => candidate.id !== target.id)
     .map((candidate) => ({ candidate, similarity: similarityBetween(target, candidate) }))
     .sort((a, b) => b.similarity - a.similarity)
-    .slice(0, Math.max(0, Math.floor(limit)))
+    .slice(0, limit)
     .map((entry) => entry.candidate)
 }
 

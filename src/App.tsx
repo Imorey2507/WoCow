@@ -87,13 +87,18 @@ export default function App() {
 
   // Score every activity in the feed, so Discover cards can show a match badge.
   // The "For you" tab then applies its own full/expired filter below.
-  const { matches, recommendations: forYou } = useMatches(activities, preferences.preferences, {
+  const { matches } = useMatches(activities, preferences.preferences, {
     excludePast: false,
     excludeFull: false,
   })
 
   const matchMap = useMemo(
     () => new Map(matches.map((match) => [match.activity.id, match])),
+    [matches],
+  )
+
+  const forYou = useMemo(
+    () => matches.filter((match) => !(match.activity.is_full && !match.activity.is_joined)),
     [matches],
   )
 
