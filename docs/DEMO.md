@@ -1,112 +1,184 @@
-# WoCow — 2-minute demo runbook
+# Aggie Playground — 2-minute demo runbook
 
-The submission requires a **recorded demo, 2 minutes MAX** (YouTube link). This
-is the click-by-click script. The event rules also warn that *judges check for
-hard-coded functionality*, so **everything shown must be real data entered live**
-— never a pre-seeded activity you pretend to create.
+Click-by-click script for the recorded submission demo (**2 minutes MAX**,
+YouTube link). Everything below targets the official app in
+[`aggie-playground/`](aggie-playground/) — the Next.js App Router build.
+
+> ⚠️ **This script has never been executed end-to-end.** It is written from the
+> source code, not from a rehearsal. Rehearse it against a real Supabase
+> project before recording, and fix anything that does not match.
+
+The event rules warn that **judges check for hard-coded functionality**, so
+everything shown must be entered live. Never present a pre-seeded activity as
+if you just created it.
 
 ---
 
-## Pre-flight (do this 5 minutes before)
+## The app, as it actually is
 
-| # | Check | Why |
+| Route | Bottom-nav label | What is on it |
 | --- | --- | --- |
-| 1 | Two browsers side by side: **normal** + **private/incognito** | Two identities, so "someone else joined" is visibly real |
-| 2 | Signed in as **different accounts** in each | Same account cannot demonstrate realtime |
-| 3 | Both on the **deployed URL**, same Wi-Fi or both on cellular | Mixed networks still work; be consistent |
-| 4 | Header shows a green **Live** dot in *both* windows | If it says "Offline", realtime is down — fix before recording |
-| 5 | Database has **no leftover test junk** | Judges may browse afterwards |
-| 6 | Phone in landscape propped up, or screen recorder at 1080p | Text must be legible in the YouTube upload |
-| 7 | **Do a full run-through once, then reset** | Never record a first attempt |
+| `/` | — | Landing page |
+| `/discover` | 🔥 Discover | Search, category chips, status toggle, **🔴 Happening Now**, **⏰ Starting Soon**, **🎪 Campus Clubs**, **Discussions** |
+| `/map` | 🗺️ Map | **🗺️ Campus Map**, pins labelled `emoji + count`, tap a pin → preview card with the join button |
+| `/profile` | 🧑🎓 Profile | **🔔 Notifications**, **🎤 Hosting**, **🎟️ Joined**, and the profile form |
+| `/buddies` | 🤝 Buddies | Matching buddies |
 
-> **Timing reality:** 2 minutes is ~300 spoken words. Rehearse to **1:45** so you
-> have slack. Practise the reset, too.
+Key buttons, verbatim from the code:
 
-**Reset between takes:** in window A, cancel every activity you host
-(*My plans → Cancel*), and leave anything you joined.
+- Header: **`+ Host Activity`**
+- Create form title: **`Host an activity`**; submit button: **`Host it! 🎉`**
+- Join button: **`Join Activity`** → **`…`** while in flight → **`Leave`** once joined; **`Full`** when there is no room
+- Hosts see **`You're hosting`** on their own card, plus **`Edit`** / **`Cancel`**
+
+---
+
+## Pre-flight (do this before recording)
+
+| # | Check |
+| --- | --- |
+| 1 | **Two windows, two accounts, both already signed in.** Use a normal window for **Account A** and a separate browser profile (or a normal + an incognito window you keep open) for **Account B**. |
+| 2 | **Do not sign in on camera.** Pre-arranged sessions are the whole point — authentication is the riskiest part of any live demo. |
+| 3 | Both windows on the **deployed URL**, both showing real data. No "⚙️ Backend not connected" banner. |
+| 4 | **As Account A:** go to `/profile`, tick **`Competitive Sports`** under *Favorite categories*, press **`Save profile`**, and wait for the `Profile saved ✨` toast. This is what makes the notification land later. |
+| 5 | **As Account B:** go to `/profile` and press **`Sign out`**, then sign back in, to confirm the session is solid. |
+| 6 | **Clear old activities.** As each account, `Cancel` anything you host from `/profile` → **🎤 Hosting**. Judges may browse afterwards. |
+| 7 | Phone landscape or 1080p screen recording. Text must survive the YouTube encode. |
+| 8 | **Record one clean take in advance and upload it.** Always have a backup. |
+
+> **Know this before you record:** the host is **automatically the first
+> participant** (`host_auto_join` trigger). When A hosts a `Max people: 2`
+> activity, the counter immediately reads **`1 / 2 players`**, not `0 / 2`.
+> Script around it — it is good material, not a bug.
 
 ---
 
 ## The script
 
-Tab names below are the **Vite app** (repo root); the equivalent Next.js tab in
-`aggie-playground/` is in brackets.
-
 ### 0:00 – 0:15 — The problem
 
-> "It's 3pm at UC Davis and you want to play basketball — but you're alone.
-> Group chats are dead and nobody answers. **WoCow fixes exactly that.**"
+> "It's 3pm at UC Davis and you want to play volleyball — but you're alone.
+> Group chats are dead. **This is Aggie Playground.**"
 
-Show the **Discover** [`discover`] list already populated with real activities.
+Open `/discover`. Point at **🔴 Happening Now** and **⏰ Starting Soon** and the
+counts in the round badges.
 
-### 0:15 – 0:45 — Host an activity (window A)
+### 0:15 – 0:45 — Account A hosts
 
-1. Click **+ Host**.
-2. Title: **`Pickup basketball`** · Category: **Basketball**
-3. Tap **📍 Drop a pin** and click on the map on campus — **or** pick **UC Davis ARC** from the chips.
-4. **Max participants: 2** ← *(deliberate: it makes the capacity limit visible later)*
-5. Starts in ~1 hour, ends 2 hours later → **Create activity**.
+In **window A**:
 
-> "Anyone can host in about ten seconds — real location, real time, real limit."
+1. Press **`+ Host Activity`** in the header.
+2. **Title:** `Sand volleyball` · **Category:** `Competitive Sports` ·
+   **Subcategory:** `Volleyball`
+3. **Where:** pick a campus location from the dropdown (e.g. the ARC).
+4. **Max people: `2`** ← deliberate. It makes the capacity limit visible later.
+5. **Starts:** leave the default (it pre-fills to the next 5-minute mark).
+6. Press **`Host it! 🎉`**.
 
-The card appears immediately. Note the counter reads **0/2**.
+The card appears with **`1 / 2 players`** and **`1 spot left`**.
 
-### 0:45 – 1:15 — It's on the map (window B)
+> "The host counts as the first player. Ten seconds, real location, real limit."
 
-1. Switch to window B and go to the **Map** [`map`] tab.
-2. **Do not refresh** — the new pin should already be there.
-3. Click the pin → popup shows title, time, and **0/2 going**.
-4. Click **Join**.
+### 0:45 – 1:15 — Account B sees it without refreshing
 
-> "Window B never refreshed. Realtime pushed it straight onto the map."
+In **window B** (has been sitting open the whole time):
+
+1. Tap **🗺️ Map** in the bottom nav.
+2. **Do not refresh.** A new pin labelled `🏐 1/2` is already there — Realtime
+   pushed it.
+3. Tap the pin → the preview card slides up.
+4. Press **`Join Activity`**. The button shows **`…`** while it works, then
+   becomes **`Leave`**.
+
+> "Window B never refreshed. Realtime put that pin on the map."
 
 ### 1:15 – 1:40 — The live head-count (the money shot)
 
-Keep **both windows visible** side by side.
+Put **both windows side by side**.
 
-1. Window A is still on Discover. Watch that card: **0/2 → 1/2** with no refresh.
-2. Now, in window A, click **Join** on the same activity.
-3. Both windows now read **2/2** and the card shows **full**.
+1. Window A is on `/discover` (or `/profile` → **🎤 Hosting**). Watch the card:
+   **`1 / 2 players` → `2 / 2 players`**, **`1 spot left` → `Full`**. No refresh.
+2. Switch B to `/profile` and point at **🎟️ Joined** — the activity is listed
+   there. This is the same `participants` table read through the new identity.
 
-> "Two people, two browsers, one shared count — and it updated itself, live."
+> "Two browsers, one shared count, updated by Postgres — not by the client."
 
-### 1:40 – 2:00 — Why it can't oversell
+### 1:40 – 2:00 — Why it cannot oversell
 
-1. Open a **third** window, signed in as anyone else.
-2. Click **Join** on the now-full activity.
+In **window A**, tap the join button on the now-full activity. The red full
+state blocks it.
 
-A red toast appears: **"That activity just filled up — try another one."**
+Then, if you have a third identity handy, try to join from it — the toast reads:
 
-> "The limit is enforced inside Postgres with a row lock, not in the browser.
-> Two people tapping Join at the same instant can't both get the last slot."
+> **"Someone just grabbed the last spot — this one is full."**
 
-**End on the full card.** Stop recording.
+> "The limit lives inside Postgres, behind a row lock, not in the browser. Two
+> people tapping Join in the same instant cannot both get the last slot."
+
+**Stop recording.**
+
+---
+
+## Optional segment A — notifications (+15s)
+
+Do this only if you have time to spare, and only if Account A already favorited
+the category in pre-flight.
+
+1. Leave **window A** on `/profile`, looking at **🔔 Notifications**.
+2. In **window B**, host another activity in **`Competitive Sports`**.
+3. In window A, a new row appears **without a refresh**: **`🆕 New in
+   Competitive Sports`**, with the activity title and location, and the unread
+   badge on **🔔 Notifications** increments.
+
+> "A database trigger matched this activity to her favourite category and
+> pushed a notification. No polling."
+
+Point out **`Mark all read`** and the ✏️ / ❌ notification kinds.
+
+---
+
+## Optional segment B — Context.dev degrades, the app does not (+15s)
+
+This is the strongest answer to "does it break without the sponsor API?".
+
+1. In **window B**, scroll `/discover` to **🎪 Campus Clubs**.
+   With no `CONTEXT_DEV_API_KEY` set, it shows **`No club events yet`** —
+   an empty state, not an error, and **nothing is fabricated**.
+2. Press **`↻ Refresh from AggieLife`**.
+3. The result is an explicit message, e.g. **"The last refresh failed:
+   CONTEXT_DEV_API_KEY is not set on the server. Showing previously cached
+   events only — nothing is substituted."**
+4. Tap **Map**, then **Discover** — everything else still works.
+
+> "The club feed is a cache that can fail. When it fails we say so and show
+> what we had. The rest of the app never depends on it."
+
+Use the real failure only if your deployment is genuinely missing the key.
+Never stage a fake error.
 
 ---
 
 ## If something breaks on camera
 
-| Failure | Recovery (say this, keep moving) |
+| Failure | Recovery |
 | --- | --- |
-| Count doesn't update live | Refresh once, say *"that's the websocket reconnecting"* — then **still show** the correct count |
-| Join button greyed out | Activity is already full from an earlier take → **reset and re-record this segment** |
-| Map tiles blank | Pan once, or fall back to the **Discover** list and narrate the pin location |
-| Login fails | **Switch to the backup recording.** Always have one. |
-
-**Always record a clean take in advance and have it uploaded.** Live demos fail;
-a backup is the difference between a score and a zero.
+| Count does not update live | Refresh once and say *"that's the websocket reconnecting"* — still show the correct number |
+| Join does nothing | Activity is already full from an earlier take → **reset and re-record this segment** |
+| Map tiles blank | Pan once, or narrate from `/discover` instead |
+| Session lost | **Switch to the backup recording.** |
+| Notification never arrives | Skip segment A entirely. Do not improvise. |
 
 ---
 
 ## What the judges are scoring
 
-- **Creativity** — spontaneous activity *formation*, not just event listing.
-- **Technical impressiveness** — the `join_activity()` row lock, RLS, derived
-  counts, Realtime. Say the words "row lock" and "Row Level Security" out loud;
-  they are the difference between a CRUD app and this.
-- **Functionality** — nothing above is mocked. Emphasise that the count is
-  computed by the database, not stored in a column.
+- **Creativity** — spontaneous activity *formation*, not another event listing.
+- **Technical impressiveness** — the `join_activity()` row lock, Row Level
+  Security, database-derived counts, and Realtime. **Say the words "row lock"
+  and "Row Level Security" out loud.** That is the difference between a CRUD
+  app and this one.
+- **Functionality** — nothing above is mocked. Emphasise that
+  `participant_count` is *computed by the database*, never stored in a column.
 
-If you also ship the Context.dev club scraping, add **10 seconds**: open the
-Discover tab and point at a *real scraped AggieLife club event* next to a
-student-hosted activity — same map, same filters. That is the $750 bonus track.
+If you show the Context.dev segment, name the bonus track explicitly: **"Best
+Use of Context.dev — $750"**.
