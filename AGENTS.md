@@ -1,357 +1,244 @@
 # AGENTS.md — working on WoCow
 
 Instructions for an AI coding agent (Cursor, Copilot, Claude Code, Codex, or
-anything else) that has just been pointed at this repository. Read this file
-first, in full, before changing anything.
+anything else) that has just been pointed at this repository. Read this file in
+full before changing anything. Humans: this is also the fastest orientation
+document here.
 
-Humans: this is also the fastest orientation document in the repo.
+> **If you are working inside `aggie-playground/`, read
+> [`aggie-playground/AGENTS.md`](aggie-playground/AGENTS.md) as well.** It
+> carries the Next.js-version-specific warnings.
 
 ---
 
-## 1. What this is
+## 1. Which app is which
 
-**WoCow** — a real-time campus activity discovery and matching platform. People
-post things happening on campus (pickup basketball, a study jam, a sunset run),
-see them on a map, get a personalised ranking of what suits them, and join with
-one tap. When anyone joins, every open page updates within a moment.
+The decision is **settled**. Do not reopen it, and do not develop against the
+wrong tree.
 
-Built by **five people in parallel** for the Berkeley hackathon on 11 October
-2026. That fact drives most of the rules below: five agents editing one repo
-needs more discipline than one.
-
-**Stack:** React 19 + TypeScript + Vite · Supabase (PostgreSQL + Auth +
-Realtime) · Leaflet + OpenStreetMap · Vitest · Vercel.
-
-### ⚠️ Two apps live here — read this before editing anything
-
-The repository currently contains **two implementations** of WoCow, and the
-team has not yet chosen between them:
-
-| Path | What it is |
+| | |
 | --- | --- |
-| repository root (`src/`, `supabase/`) | Vite + React SPA. 53 database checks, 25 unit tests. No Context.dev. |
-| `aggie-playground/` | Next.js 16 App Router. Context.dev scraping, notifications, buddy matching, forum, profile. |
+| **Official submission** | [`aggie-playground/`](aggie-playground/) |
+| **Frozen backup** | the Vite + React SPA at this repository's root |
 
-**Rules while both exist:**
+The root Vite app is **read-only reference**. It is not developed, not built by
+CI, and not deployed. Do not add features to it, do not "fix it up", and do not
+delete it.
 
-1. **Do not deploy either one.** Pointed at this repo, Vercel defaults to
-   building the Vite app at the root.
-2. **Do not run both sets of migrations against one Supabase project.** Both
-   define `activities` and `activity_feed` and will collide.
-3. **Keep your edits inside one app's folder.** Nothing imports across the
-   boundary.
-4. `aggie-playground/` has its own `package.json` and its own `AGENTS.md`.
-   Read that file before touching Next.js code — it warns that its Next.js
-   version has breaking changes and that you must consult
-   `node_modules/next/dist/docs/` first.
+Both trees were built independently, and **both define an `activities` table and
+an `activity_feed` view — with different columns.** Nothing may be imported
+across the boundary. If you find yourself writing an import that reaches from
+one tree into the other, stop; that is a design error, not a shortcut.
 
-Rationale for the eventual choice, and what each app covers, is tabulated in
-[README.md § READ FIRST](README.md#-read-first-this-repository-holds-two-implementations).
+### The official app
 
----
+| | |
+| --- | --- |
+| Path | `aggie-playground/` |
+| Stack | Next.js 16 App Router · React 19 · TypeScript · Supabase · Leaflet · Vercel |
+| Package manager | **npm** |
+| Authoritative lockfile | `aggie-playground/package-lock.json` |
+| Vercel Root Directory | **`aggie-playground`** |
 
-## 2. Hard rules
+> ⚠️ Vercel defaults to the repository root. Left on the default it will try to
+> build the frozen Vite backup instead of the official app. Root Directory
+> **must** be set to `aggie-playground`.
 
-These are not stylistic preferences. Breaking them costs the team real time.
-
-1. **NEVER commit `.env.local`, any API key, or the Supabase `service_role`
-   key.** `.env.local` is gitignored. Only `.env.example` is tracked. The
-   `service_role` key bypasses Row Level Security completely — if it reaches
-   the browser bundle or the repo, the database is wide open.
-2. **NEVER put a secret in a `VITE_*` variable.** Vite inlines every `VITE_*`
-   value into the JavaScript that every visitor downloads. It is public.
-   Only the publishable/anon key belongs there, because RLS protects the data.
-3. **NEVER push to `main`.** Work on your assigned `feature/*` branch and open
-   a Pull Request. See §8.
-4. **NEVER edit a migration file that has already been applied.** Add a new
-   timestamped file. Someone else's database already ran the old one, and the
-   two will silently diverge.
-5. **NEVER replace `join_activity()` with a client-side count-then-insert.**
-   That reintroduces a race that lets an 11th person into a 10-person activity.
-   See §7.
-6. **NEVER write `supabase.from(...)` outside `src/features/activities/api.ts`.**
-   That module is the single data layer. See §5.
-7. **Do not edit another owner's folder without saying so.** See §4.
+Do not add a pnpm lockfile inside `aggie-playground/`. It uses npm, and a
+second lockfile alongside the authoritative one is a trap. (The root Vite
+backup uses pnpm; that is separate and frozen.)
 
 ---
 
-## 3. Environment setup
+## 2. Security rules
 
-Do these in order. Steps 1–6 are what a fresh teammate (or their agent) needs.
+1. **Never commit `.env.local`** or any real key, token, or password. Only
+   `.env.example` is tracked, and it contains names and descriptions only.
+2. **The browser may only ever see these two variables:**
+   - `NEXT_PUBLIC_SUPABASE_URL`
+   - `NEXT_PUBLIC_SUPABASE_ANON_KEY`
 
-### 3.1 Prerequisites
-
-- **Node.js 20 or 22** — from <https://nodejs.org>. It must be on `PATH`;
-  esbuild's install script literally shells out to `node`.
-- **pnpm 11** — `npm install -g pnpm`
-- **Git**
-- Nothing else. No Docker, no database server, no Supabase CLI required.
-
-### 3.2 Get the code and install
-
-```bash
-git clone https://github.com/Imorey2507/WoCow.git
-cd WoCow
-pnpm install
-```
-
-### 3.3 Connect a database
-
-The app renders a "WoCow needs a database" screen until this is done. It is
-designed to do that instead of crashing — that screen is not a bug.
-
-```bash
-cp .env.example .env.local
-```
-
-Fill in two values from the shared Supabase project
-(**Settings → API**):
-
-```dotenv
-VITE_SUPABASE_URL=https://YOUR_PROJECT.supabase.co
-VITE_SUPABASE_PUBLISHABLE_KEY=YOUR_PUBLISHABLE_KEY
-```
-
-Get these from the team lead or the shared password manager. **Do not create a
-new Supabase project** — all five people share one.
-
-Full walkthrough including the seven SQL migrations: **[docs/SETUP.md](docs/SETUP.md)**.
-
-### 3.4 Run it
-
-```bash
-pnpm dev          # http://localhost:5173, also on your phone via LAN
-```
-
-Vite reads env files **only at startup**. After editing `.env.local`, restart
-the dev server or you will chase a phantom bug.
+   Anything prefixed `NEXT_PUBLIC_` is inlined into the JavaScript every
+   visitor downloads. It is public. The anon key is safe there **only**
+   because Row Level Security protects the data.
+3. **These are server-only. Never give them a `NEXT_PUBLIC_` prefix:**
+   - `SUPABASE_SERVICE_ROLE_KEY` — bypasses Row Level Security entirely
+   - `CONTEXT_DEV_API_KEY` — a paid API credential
+   - `CRON_SECRET` — authorises the scheduled club refresh
+4. **`aggie-playground/src/lib/server/**` must stay server-only.** Those
+   modules import `server-only`, which deliberately **fails the build** if a
+   client component ever imports them. Do not remove that import, and do not
+   relax it to make an error go away — the error is the feature.
+5. **Do not run remote migrations, deploy, or change any live service
+   configuration without explicit approval from Person 5.** No exceptions, not
+   even for a "quick test". Production credentials and the deployment are
+   Person 5's call.
 
 ---
 
-## 4. Ownership map
+## 3. Database rules
 
-One person owns each area. You may read anything. Before *changing* something
-you do not own, ask in the team chat — five agents editing `App.tsx` at once is
-how a hackathon loses an afternoon.
+1. **The only migrations that may be applied are in
+   `aggie-playground/supabase/migrations/`.**
+2. **The root `supabase/` directory belongs to the frozen Vite backup. It must
+   never be run against the official Supabase project.** The two schemas
+   collide on `activities` and `activity_feed`. Running both against one
+   database will corrupt it.
+3. **Never edit a migration that has already been applied.** Add a new
+   timestamped migration instead. Someone's database has already run the old
+   one, and the two will silently diverge.
+4. **Keep `join_activity` atomic.** It takes a `SELECT … FOR UPDATE` row lock on
+   the activity before counting participants. That lock is the only reason two
+   students tapping Join simultaneously cannot both take the last slot. Never
+   replace it with a client-side count-then-insert, and never "simplify" the
+   capacity check into the calling code.
+5. **Changes to RLS policies, Realtime publication membership, notification
+   triggers, or the `public_profiles` view require review by Person 3.**
+6. **Do not mechanically change `public_profiles` to `security_invoker`.** It
+   is intentionally an owner-rights view that bypasses the RLS on `profiles`,
+   because a plain subquery could never see another student's `discoverable`
+   flag. The `CASE` expressions are the protection, and they are what makes
+   Buddy discovery possible. Any change there must first demonstrate, with
+   evidence, what the view does and does not expose.
+
+For behavioural checks against a real database, use
+`aggie-playground/supabase/tests/rls_smoke.sql`. It wraps everything in a
+transaction and rolls back, so it writes nothing.
+
+---
+
+## 4. The official verification commands
+
+Run these **inside `aggie-playground/`**:
+
+```bash
+npm ci
+npm run lint
+npm run typecheck
+npm test
+npm run build
+```
+
+What each one really does — do not describe them inaccurately:
+
+| Command | Actually runs |
+| --- | --- |
+| `npm run lint` | `eslint` |
+| `npm run typecheck` | **`next typegen && tsc --noEmit`** |
+| `npm test` | `node --test` |
+| `npm run build` | `next build` |
+
+Four things to be precise about:
+
+- **`npm run typecheck` runs `next typegen` first, and that is load-bearing.**
+  `next-env.d.ts` is gitignored but imports generated files under
+  `.next/types/`. On a clean checkout, bare `tsc` fails with
+  `Cannot find name 'LayoutProps'`. Do not "simplify" the script back to
+  `tsc --noEmit`.
+- **There are currently 18 unit tests**, covering Context.dev data
+  normalisation and its anti-fabrication rules.
+- **`supabase/tests/rls_smoke.sql` must be run by hand against a real test
+  Supabase project.** It has **never been executed**. It is unproven SQL until
+  somebody runs it and reports the notices.
+- **Green typecheck / build / unit tests do NOT mean the app works.** They
+  prove the code compiles and that some pure functions behave. They say nothing
+  about the database, Realtime, or the browser.
+
+### The only definition of "end-to-end verified"
+
+A flow may be called **E2E verified only after it has been observed in a real
+browser against a real Supabase project.** Nothing else counts. Compiling,
+passing unit tests, or reasoning about the code is not verification. If you have
+not watched it happen, do not write that it works.
+
+---
+
+## 5. Ownership
+
+One person owns each area. Read anything; before *changing* something you do
+not own, coordinate first. Paths are relative to `aggie-playground/`.
 
 | Person | Branch | Owns |
 | --- | --- | --- |
-| 1 | `feature/frontend` | `src/components/`, `src/pages/`, `src/index.css` |
-| 2 | `feature/map` | `src/features/map/` |
-| 3 | `feature/backend` | `src/features/activities/`, `src/lib/`, `supabase/` |
-| 4 | `feature/matching` | `src/features/matching/` |
-| 5 | `feature/integration` | `src/App.tsx`, `src/main.tsx`, config, docs, review + merge |
+| 1 | `feature/frontend` | `src/app/discover/`, `src/app/profile/`, UI components, mobile UI, loading / empty / error states |
+| 2 | `feature/map` | `src/app/map/`, `CampusMap*`, `src/lib/locations.ts` |
+| 3 | `feature/backend` | `supabase/`, `src/lib/server/`, `src/lib/supabase/`, `src/app/api/`, authentication and data integration |
+| 4 | `feature/matching` | `src/app/buddies/`, matching logic and tests, discoverability privacy |
+| 5 | `feature/integration` | layout and navigation, CI, environment contract, docs, PR review, Vercel, E2E coordination |
 
-**The three shared files** — expect conflicts here and coordinate first:
+### Shared files — announce before you touch them
 
-| File | Effective owner |
-| --- | --- |
-| `package.json` / `pnpm-lock.yaml` | whoever adds a dependency — announce it first |
-| `src/App.tsx` | Person 5 |
-| `src/lib/types.ts` | Person 3 |
+These are edited by more than one person and are the realistic source of
+conflicts:
 
----
+- `package.json`
+- `package-lock.json`
+- `src/lib/types.ts`
+- `src/components/ActivitiesProvider.tsx`
+- `src/components/AppShell.tsx`
+- `supabase/migrations/*`
 
-## 5. Architecture
-
-### Data flows one way
-
-```
-useAuth ─────────┐
-usePreferences ──┤
-                 ├──> useActivities ──> (exactly ONE realtime websocket)
-                 │         │
-                 │         ├──> useMatches   (pure, unit-tested)
-                 │         │
-                 └─────────┴──> pages        (presentational)
-```
-
-`useActivities` is called **once**, in `src/App.tsx`. Do not add a second call
-inside a page or component — each one opens another websocket channel and
-Supabase will eventually rate-limit the project.
-
-### Where things live
-
-| Path | Purpose |
-| --- | --- |
-| `src/lib/supabase.ts` | the single Supabase client. Never construct another. |
-| `src/lib/types.ts` | the shared type contract. Change with the schema, same PR. |
-| `src/features/activities/api.ts` | **the only place that queries the database** |
-| `src/features/activities/realtime.ts` | `postgres_changes` subscriptions |
-| `src/features/matching/scoring.ts` | four weighted signals, pure functions |
-| `src/features/map/` | Leaflet map, tap-to-drop pin, campus gazetteer |
-| `src/components/`, `src/pages/` | presentational UI, no data access |
-| `supabase/migrations/` | the schema, applied in filename order |
-| `supabase/tests/schema.mjs` | runs the migrations against real PostgreSQL |
-
-### The shared interface
-
-Person 3 owns these. Call them; do not re-implement them.
-
-```ts
-getActivities(filters?)      getActivity(id)         createActivity(input)
-updateActivity(id, patch)    deleteActivity(id)      joinActivity(id)
-leaveActivity(id)            getParticipants(id)     getMyActivities()
-```
-
-`getActivities` reads the `activity_feed` **view**, which already carries
-`participant_count`, `is_full` and `is_joined`. Never re-derive those on the
-client, and never issue a query per card.
+Two people adding dependencies at the same time is the single most common way
+this repository breaks. Say so in the group chat first.
 
 ---
 
-## 6. Verifying your work
+## 6. Git rules
 
-Run all four before you say you are done.
+- **Never commit or push directly to `main`.**
+- Work only on your own `feature/*` branch.
+- Merge through a Pull Request.
+- **Person 5 performs the final review and merge.**
+- **Never force-push a shared branch.**
+- **Never overwrite another person's uncommitted work.** Check the working tree
+  before you start.
+- **A "compare" URL is not a Pull Request.** Do not describe one as created.
+  A PR exists only once it has actually been opened.
+- **CI counts as remote verification only after a real PR has been opened and
+  GitHub Actions has run on it.** A local run, or a workflow file that exists,
+  proves nothing about the remote.
 
-```bash
-pnpm typecheck    # tsc --noEmit
-pnpm test         # vitest — the matching algorithm (25 tests)
-pnpm test:db      # the database schema + RLS, against real PostgreSQL (53 checks)
-pnpm build        # tsc + vite build
-```
-
-`pnpm test:db` needs no cloud project and no Docker: it runs PostgreSQL
-compiled to WebAssembly (PGlite) in-process, applies every migration, then
-exercises the RLS policies and the RPCs the way the app does.
-
-**Know what `pnpm test:db` cannot tell you** — it says so itself when it
-passes:
-
-- PGlite is **single-connection**, so it cannot reproduce two users racing for
-  the last slot. The `SELECT … FOR UPDATE` lock in `join_activity()` is *not*
-  covered. Verify that against the real Supabase project.
-- It runs against `supabase/tests/shim.sql`, an emulation of Supabase's `auth`
-  schema and roles, so a divergence between the shim and the platform would not
-  be caught.
-- It proves publication membership, not that Realtime actually delivers.
-
-A green suite means the schema is sound. It does not mean the app works. Open
-the browser.
+Keep commits small and say what changed and why — `Fix join race with row lock`,
+not `update`.
 
 ---
 
-## 7. Database changes
+## 7. Current real status
 
-Add a new timestamped migration; never edit an applied one:
+Read this before you claim anything works.
 
-```
-supabase/migrations/20250101000700_add_activity_tags.sql
-```
+**Settled**
+- The official app is `aggie-playground/`. The root Vite app is a frozen
+  read-only backup.
 
-Then:
+**Verified locally, by running it**
+- Person 5's integration branch passes `lint`, `typecheck`, `test` (18/18) and
+  `build`.
 
-1. Update `src/lib/types.ts` in the **same** PR.
-2. Run `pnpm test:db` — it applies your new file automatically.
-3. Add assertions for your change to `supabase/tests/schema.mjs` if it alters
-   access control.
-4. Ask Person 3 to review.
+**Not verified — open items**
+- **`npm ci` on a clean runner is still unproven.** It awaits GitHub Actions.
+  The local install used pnpm because npm was unavailable in the environment
+  where that work was done, so a clean `npm ci` has never actually run.
+- **No real Supabase project has ever been connected.**
+- **`rls_smoke.sql` has never been executed.**
+- **Context.dev has never been called** with a real key.
+- **Realtime has never been observed** in a browser.
+- **There is no browser end-to-end demo.**
+- **Nothing is deployed.**
 
-Conventions: `enable row level security` on every new table plus explicit
-policies; add columns as nullable or defaulted so old code keeps working while
-the PR is open; index the columns you filter on.
-
-### Things that will bite you
-
-- **RLS does not apply to a table's owner or a superuser.** A test that queries
-  as owner passes no matter how broken the policies are. `schema.mjs` always
-  does `set role anon|authenticated` first — copy that pattern.
-- **A policy that reads its own table recurses infinitely** ("infinite
-  recursion detected in policy"). That is why `activity_has_space()` exists as
-  a `SECURITY DEFINER` function.
-- **`security_invoker=on` on a view** is what makes it respect RLS. Without it
-  the view runs as its owner and leaks every row.
-- **`(select auth.uid())` beats `auth.uid()`** in a policy: it is evaluated
-  once per query rather than once per row.
+**Therefore: the demo-readiness condition is NOT met.** Do not report the
+project as complete, working, or demo-ready. It is a well-tested codebase whose
+runtime behaviour against real services is entirely unobserved.
 
 ---
 
-## 8. Git workflow
-
-```bash
-git switch main && git pull origin main
-git switch feature/matching        # your branch
-git merge main                     # pull in others' work daily
-# ... work ...
-git add . && git commit -m "Add distance weighting to matching score"
-git push -u origin feature/matching
-```
-
-Then open a Pull Request into `main`. Person 5 reviews and merges. Resolve
-conflicts on **your** branch, never in `main`.
-
-Commit messages state what changed and why: `Fix join race with row lock`, not
-`update`. Five people will read this log more than they expect.
-
-`main` auto-deploys to production on Vercel. Every PR gets its own preview URL.
-
----
-
-## 9. Gotchas worth knowing up front
-
-| Symptom | Cause | Fix |
-| --- | --- | --- |
-| `ERR_PNPM_IGNORED_BUILDS` (esbuild) | pnpm blocks install scripts by default | already allow-listed in `pnpm-workspace.yaml`; run `pnpm approve-builds` if it persists |
-| `'node' is not recognized` during install | Node not on `PATH` | install Node from nodejs.org, reopen the terminal |
-| `ERR_PNPM_OUTDATED_LOCKFILE` | `package.json` edited by hand, or `CI=true` forces frozen lockfile | `pnpm install --no-frozen-lockfile` |
-| "WoCow needs a database" screen | `.env.local` missing or placeholder | fill it in and **restart** `pnpm dev` |
-| `relation "public.activity_feed" does not exist` | migration 3 not run | run it — the app reads the view, not the raw table |
-| Counts frozen across browsers | migration 6 not run | run the realtime migration |
-| `new row violates row-level security policy` | migration 4 not run, or `host_id ≠ auth.uid()` | run the RLS migration; set `host_id` from the session |
-| Map blank in dev only | React StrictMode double-mount | React Leaflet v5 handles it; as a last resort remove `<StrictMode>` in `src/main.tsx` |
-| pnpm install spins at high CPU | transient on Windows (AV scanning the WASM) | kill it and re-run; it completes in seconds |
-
-Note on `pnpm` config: **pnpm 11 no longer reads the `pnpm` field in
-`package.json`.** Settings live in `pnpm-workspace.yaml`.
-
----
-
-## 10. Current state
-
-**Done and verified (repo root — the Vite app)**
-
-- React + Vite + TS app, all five modules, mobile-first UI
-- Seven Supabase migrations: schema, capacity helper, feed view, RLS, atomic
-  join/leave RPCs, Realtime publication, demo seed
-- `pnpm typecheck` clean · `pnpm test` 25/25 · `pnpm test:db` 53/53 ·
-  `pnpm build` succeeds
-- Git: `main` + five `feature/*` branches pushed to
-  <https://github.com/Imorey2507/WoCow>
-- Docs, GitHub Actions CI, and a PR template
-
-**Also present (`aggie-playground/` — the Next.js app)**
-
-- 4-tab shell matching the brainstorm (profile, map, discover, buddies)
-- 8-table schema including notifications, buddy requests, club events and posts
-- Context.dev integration that scrapes AggieLife into `club_events`
-- The 7-category taxonomy prototype in `aggie-playground/scripts/`
-- No automated tests yet
-
-**Undecided**
-
-- Which of the two apps becomes WoCow. Both are preserved pending a team
-  decision; neither should be deployed until then.
-
-**Still needs a human with credentials**
-
-1. Create the shared Supabase project and run the chosen app's migrations
-   ([docs/SETUP.md](docs/SETUP.md))
-2. Invite the other four as repository collaborators
-3. Import into Vercel, set the **root directory** to the chosen app, and add
-   the `VITE_*` (Vite) or `NEXT_PUBLIC_*` (Next.js) environment variables
-   ([docs/DEPLOY.md](docs/DEPLOY.md))
-4. Enable **Anonymous sign-ins** in Supabase Auth if you want the one-tap
-   guest demo path
-5. Make the repository **Public** before submission — the event requires it
-
----
-
-## 11. Read next
+## 8. Read next
 
 | Document | For |
 | --- | --- |
-| [README.md](README.md) | the human-facing overview |
-| [docs/SETUP.md](docs/SETUP.md) | creating the database, with verification SQL |
-| [docs/DATABASE.md](docs/DATABASE.md) | every table, policy and function |
-| [docs/GIT_WORKFLOW.md](docs/GIT_WORKFLOW.md) | branches, PRs, conflict rules |
-| [docs/DEPLOY.md](docs/DEPLOY.md) | Vercel, env vars, rollback |
+| [`aggie-playground/AGENTS.md`](aggie-playground/AGENTS.md) | Next.js-specific and app-specific rules |
+| [`README.md`](README.md) | human-facing overview, setup, Supabase and Vercel steps |
+| [`docs/DEMO.md`](docs/DEMO.md) | the two-minute demo runbook |
+| [`docs/DATABASE.md`](docs/DATABASE.md) | schema reference (written for the frozen backup — treat as reference only) |
+| [`docs/GIT_WORKFLOW.md`](docs/GIT_WORKFLOW.md) | branch and PR workflow |
+| [`docs/DEPLOY.md`](docs/DEPLOY.md) | deployment notes |
