@@ -4,9 +4,17 @@ import { useState } from "react";
 import type { Activity } from "@/lib/types";
 import { categoryOf } from "@/lib/categories";
 import { durationLabel, relativeStart, timeLabel } from "@/lib/format";
+import { capacityPercent, joinButtonState, spotsLabel, type JoinButtonState } from "@/lib/ui";
 import { useActivities } from "./ActivitiesProvider";
 import { useAuth } from "./AuthProvider";
 import { useUI } from "./UIProvider";
+
+const TONES: Record<JoinButtonState["tone"], string> = {
+  lavender: "bg-lavender",
+  white: "bg-white",
+  muted: "bg-ink/10",
+  grass: "bg-grass",
+};
 
 export function CategoryTag({ name, sub }: { name: string; sub?: string }) {
   const c = categoryOf(name);
@@ -36,22 +44,38 @@ export function JoinButton({ a, className = "" }: { a: Activity; className?: str
   const joined = joinedIds.has(a.id);
   const isHost = user?.id === a.host_id;
   const full = a.spots_remaining <= 0;
+  const state = joinButtonState({ isHost, joined, full, busy });
 
   async function click() {
+    // The button is disabled while busy, but a click already queued in the same
+    // tick can still land before React re-renders.
+    if (busy) return;
     setBusy(true);
-    const err = joined ? await leave(a.id) : await join(a.id);
-    setBusy(false);
-    if (err) showToast(err);
-    else showToast(joined ? "You left the activity" : "You're in! 🎉");
+    try {
+      const err = joined ? await leave(a.id) : await join(a.id);
+      showToast(err ?? (joined ? "You left the activity" : "You're in! 🎉"));
+    } finally {
+      setBusy(false);
+    }
   }
 
-  if (isHost)
-    return <span className={`rounded-2xl border-2 border-ink bg-lavender px-4 py-2 text-center text-sm font-extrabold ${className}`}>You&apos;re hosting</span>;
+  if (state.kind === "host")
+    return (
+      <span className={`rounded-2xl border-2 border-ink px-4 py-2 text-center text-sm font-extrabold ${TONES[state.tone]} ${className}`}>
+        {state.label}
+      </span>
+    );
 
-  const disabled = busy || (!joined && full);
   return (
-    <button onClick={click} disabled={disabled} className={`sticker-sm pop rounded-2xl px-4 py-2 font-display text-base font-bold disabled:cursor-not-allowed disabled:opacity-60 ${joined ? "bg-white" : full ? "bg-ink/10" : "bg-grass"} ${className}`}>
-      {busy ? "…" : joined ? "Leave" : full ? "Full" : "Join Activity"}
+    <button
+      type="button"
+      onClick={click}
+      disabled={state.disabled}
+      aria-label={state.ariaLabel}
+      aria-busy={busy || undefined}
+      className={`sticker-sm pop rounded-2xl px-4 py-2 font-display text-base font-bold disabled:cursor-not-allowed disabled:opacity-60 ${TONES[state.tone]} ${className}`}
+    >
+      {state.label}
     </button>
   );
 }
@@ -61,9 +85,23 @@ export function ActivityCard({ a, compact = false }: { a: Activity; compact?: bo
   const { openEdit } = useUI();
   const { cancelActivity } = useActivities();
   const { showToast } = useUI();
+  const [cancelling, setCancelling] = useState(false);
   const c = categoryOf(a.category);
-  const pct = Math.min(100, Math.round((a.participant_count / a.max_participants) * 100));
+  const pct = capacityPercent(a.participant_count, a.max_participants);
   const isHost = user?.id === a.host_id;
+
+  async function cancel() {
+    // Guarded so a double-click cannot send two cancel writes.
+    if (cancelling) return;
+    if (!confirm("Cancel this activity? Everyone who joined will be notified.")) return;
+    setCancelling(true);
+    try {
+      const err = await cancelActivity(a.id);
+      showToast(err ?? "Activity cancelled");
+    } finally {
+      setCancelling(false);
+    }
+  }
 
   return (
     <article className="sticker pop flex flex-col gap-2 rounded-3xl bg-white p-4" style={{ borderTopColor: c.color }}>
@@ -82,35 +120,40 @@ export function ActivityCard({ a, compact = false }: { a: Activity; compact?: bo
       {!compact && a.description && <p className="line-clamp-2 text-sm font-semibold text-ink/70">{a.description}</p>}
 
       <div className="mt-1">
-        <div className="flex items-baseline justify-between text-sm font-extrabold">
+        <div className="flex items-baseline justify-between gap-2 text-sm font-extrabold">
           <span>{a.participant_count} / {a.max_participants} players</span>
-          <span className={a.spots_remaining <= 2 ? "text-red-600" : "text-ink/70"}>
-            {a.spots_remaining === 0 ? "Full" : `${a.spots_remaining} spot${a.spots_remaining === 1 ? "" : "s"} left`}
-          </span>
+          <span className={a.spots_remaining <= 2 ? "text-red-600" : "text-ink/70"}>{spotsLabel(a.spots_remaining)}</span>
         </div>
-        <div className="mt-1 h-3 overflow-hidden rounded-full border-2 border-ink bg-cream" role="progressbar" aria-valuenow={a.participant_count} aria-valuemin={0} aria-valuemax={a.max_participants}>
-          <div className="h-full transition-all duration-500" style={{ width: `${pct}%`, background: c.color }} />
+        <div
+          className="mt-1 h-3 overflow-hidden rounded-full border-2 border-ink bg-cream"
+          role="progressbar"
+          aria-label="Participants"
+          aria-valuenow={a.participant_count}
+          aria-valuemin={0}
+          aria-valuemax={a.max_participants}
+          aria-valuetext={`${a.participant_count} of ${a.max_participants} players`}
+        >
+          <div className="h-full transition-all duration-500" style={{ width: `${pct}%`, background: c.color }} aria-hidden="true" />
         </div>
       </div>
 
-      <div className="mt-1 flex items-center justify-between gap-2">
-        <span className="flex items-center gap-1.5 text-xs font-extrabold text-ink/70">
-          <span className="grid h-6 w-6 place-items-center rounded-full border-2 border-ink text-sm" style={{ background: a.host_color ?? "#ffd84d" }}>{a.host_emoji ?? "🐮"}</span>
-          {a.host_name ?? "Aggie"}
+      <div className="mt-1 flex flex-wrap items-center justify-between gap-2">
+        <span className="flex min-w-0 items-center gap-1.5 text-xs font-extrabold text-ink/70">
+          <span className="grid h-6 w-6 shrink-0 place-items-center rounded-full border-2 border-ink text-sm" style={{ background: a.host_color ?? "#ffd84d" }} aria-hidden="true">{a.host_emoji ?? "🐮"}</span>
+          <span className="truncate">{a.host_name ?? "Aggie"}</span>
         </span>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           {isHost && (
             <>
-              <button onClick={() => openEdit(a)} className="sticker-sm pop rounded-2xl bg-white px-3 py-2 text-sm font-extrabold">Edit</button>
+              <button type="button" onClick={() => openEdit(a)} className="sticker-sm pop rounded-2xl bg-white px-3 py-2 text-sm font-extrabold">Edit</button>
               <button
-                onClick={async () => {
-                  if (!confirm("Cancel this activity? Everyone who joined will be notified.")) return;
-                  const err = await cancelActivity(a.id);
-                  showToast(err ?? "Activity cancelled");
-                }}
-                className="sticker-sm pop rounded-2xl bg-coral px-3 py-2 text-sm font-extrabold"
+                type="button"
+                onClick={cancel}
+                disabled={cancelling}
+                aria-busy={cancelling || undefined}
+                className="sticker-sm pop rounded-2xl bg-coral px-3 py-2 text-sm font-extrabold disabled:cursor-not-allowed disabled:opacity-60"
               >
-                Cancel
+                {cancelling ? "Cancelling…" : "Cancel"}
               </button>
             </>
           )}

@@ -2,13 +2,14 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { getSupabase } from "@/lib/supabase/client";
+import { getSupabase, supabaseConfigured } from "@/lib/supabase/client";
 import { CATEGORIES } from "@/lib/categories";
 import type { AppNotification } from "@/lib/types";
 import { useAuth } from "@/components/AuthProvider";
 import { useActivities } from "@/components/ActivitiesProvider";
 import { useUI } from "@/components/UIProvider";
 import { ActivityCard, EmptyState } from "@/components/ActivityCard";
+import { ErrorState, NotConfiguredNotice } from "@/components/States";
 import { Cow } from "@/components/Cow";
 
 const EMOJIS = ["🐮", "😎", "🤓", "🏐", "🏀", "🥏", "🎨", "📚", "💪", "🧋", "🌻", "🚴"];
@@ -29,7 +30,9 @@ export default function ProfilePage() {
   const [prefs, setPrefs] = useState<string[]>([]);
   const [discoverable, setDiscoverable] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [signingOut, setSigningOut] = useState(false);
   const [notes, setNotes] = useState<AppNotification[]>([]);
+  const [notesError, setNotesError] = useState<string | null>(null);
 
   // Hydrate the form once per loaded profile (adjusting state during render, not in an effect).
   const [hydratedFor, setHydratedFor] = useState<string | null>(null);
@@ -46,7 +49,14 @@ export default function ProfilePage() {
 
   const loadNotes = useCallback(async () => {
     if (!user) return;
-    const { data } = await getSupabase().from("notifications").select("*").order("created_at", { ascending: false }).limit(30);
+    const { data, error: notesErr } = await getSupabase().from("notifications").select("*").order("created_at", { ascending: false }).limit(30);
+    if (notesErr) {
+      // Previously this failed silently and rendered "All quiet", which reads as
+      // "you have no notifications" rather than "we could not load them".
+      setNotesError(notesErr.message);
+      return;
+    }
+    setNotesError(null);
     setNotes((data ?? []) as AppNotification[]);
   }, [user]);
 
@@ -65,7 +75,19 @@ export default function ProfilePage() {
   const joined = useMemo(() => activities.filter((a) => joinedIds.has(a.id) && a.host_id !== user?.id), [activities, joinedIds, user]);
   const favSubs = useMemo(() => CATEGORIES.filter((c) => favs.includes(c.name)).flatMap((c) => c.subcategories), [favs]);
 
-  if (loading) return <div className="h-40 animate-pulse rounded-3xl bg-white/60" />;
+  if (loading) return <div className="h-40 animate-pulse rounded-3xl bg-white/60" role="status" aria-busy="true" aria-label="Loading your profile" />;
+
+  // No Supabase project: say so, rather than showing a sign-in card that cannot
+  // possibly work and leaving the user to guess why.
+  if (!supabaseConfigured) {
+    return (
+      <div className="mx-auto max-w-2xl space-y-6 pt-4">
+        <h1 className="font-display text-3xl font-bold">🧑‍🎓 Profile</h1>
+        <NotConfiguredNotice />
+      </div>
+    );
+  }
+
   if (!user)
     return (
       <div className="mx-auto max-w-md pt-6 text-center">
@@ -145,7 +167,24 @@ export default function ProfilePage() {
 
         <div className="flex gap-2">
           <button disabled={saving} className="sticker pop flex-1 rounded-2xl bg-sun py-2.5 font-display text-lg font-bold disabled:opacity-60">{saving ? "Saving…" : "Save profile"}</button>
-          <button type="button" onClick={() => void signOut()} className="sticker-sm pop rounded-2xl bg-white px-4 font-display font-bold">Sign out</button>
+          <button
+            type="button"
+            onClick={async () => {
+              // Guarded so a double-click cannot fire two sign-outs.
+              if (signingOut) return;
+              setSigningOut(true);
+              try {
+                await signOut();
+              } finally {
+                setSigningOut(false);
+              }
+            }}
+            disabled={signingOut}
+            aria-busy={signingOut || undefined}
+            className="sticker-sm pop rounded-2xl bg-white px-4 font-display font-bold disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            {signingOut ? "Signing out…" : "Sign out"}
+          </button>
         </div>
       </form>
 
@@ -155,7 +194,9 @@ export default function ProfilePage() {
             <h2 id="notif" className="font-display text-2xl font-bold">🔔 Notifications {unread > 0 && <span className="ml-1 rounded-full border-2 border-ink bg-coral px-2 py-0.5 align-middle text-sm">{unread}</span>}</h2>
             {unread > 0 && <button onClick={() => void markRead()} className="text-sm font-extrabold underline decoration-2 underline-offset-4">Mark all read</button>}
           </div>
-          {notes.length === 0 ? (
+          {notesError ? (
+            <ErrorState title="Couldn't load notifications" message={notesError} onRetry={() => void loadNotes()} />
+          ) : notes.length === 0 ? (
             <EmptyState title="All quiet" hint="Pick favorite categories and you'll be notified when matching activities appear, or when something you joined changes." />
           ) : (
             <ul className="space-y-2">
