@@ -11,8 +11,19 @@
 -- concurrent joins safe and keeps a single source of truth.
 -- =============================================================================
 
--- gen_random_uuid() lives in pgcrypto on older Postgres; no-op on PG13+.
-create extension if not exists "pgcrypto";
+-- gen_random_uuid() has been built into PostgreSQL core since 13, which is far
+-- older than any Supabase project. pgcrypto is only needed on pre-13 servers,
+-- and some PostgreSQL builds ship without it — so a missing extension is a
+-- notice, not a fatal error. Never let a no-op convenience break the schema.
+do $$
+begin
+  begin
+    create extension if not exists "pgcrypto";
+  exception when others then
+    raise notice 'pgcrypto unavailable (%); using the built-in gen_random_uuid()', sqlerrm;
+  end;
+end
+$$;
 
 -- -----------------------------------------------------------------------------
 -- activities — one row per campus activity

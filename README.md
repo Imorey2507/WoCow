@@ -69,7 +69,11 @@ Open http://localhost:5173.
 | `pnpm preview` | Serve the production build locally |
 | `pnpm typecheck` | `tsc --noEmit` only |
 | `pnpm test` | Run the matching-algorithm unit tests |
+| `pnpm test:db` | Run the database schema + RLS tests against real PostgreSQL |
 | `pnpm test:watch` | Tests in watch mode |
+
+> **Using an AI coding agent?** Point it at [AGENTS.md](AGENTS.md) first — it
+> has the hard rules, the ownership map and the verification commands.
 
 ---
 
@@ -116,7 +120,9 @@ wocow/
 │   ├── App.tsx                Person 5 — integration
 │   ├── main.tsx               Person 5
 │   └── index.css              Person 1
-├── supabase/migrations/       Person 3 — database, applied in filename order
+├── supabase/
+│   ├── migrations/            Person 3 — applied in filename order
+│   └── tests/                 Person 3 — schema + RLS tests (`pnpm test:db`)
 ├── docs/
 │   ├── SETUP.md               Supabase walkthrough
 │   ├── DATABASE.md            schema + RPC reference

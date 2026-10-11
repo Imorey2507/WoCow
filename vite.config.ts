@@ -21,8 +21,11 @@ export default defineConfig({
         //
         // MapPage is also lazy-loaded in App.tsx, so Leaflet only downloads
         // for users who actually open the Map tab.
+        //
+        // React is deliberately NOT listed here: it is the entry's own
+        // dependency, so Rollup folds it into the index chunk and a separate
+        // entry just produces an empty file plus a build warning.
         manualChunks: {
-          react: ['react', 'react-dom'],
           supabase: ['@supabase/supabase-js'],
           leaflet: ['leaflet', 'react-leaflet'],
         },

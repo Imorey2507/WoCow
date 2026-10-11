@@ -4,9 +4,10 @@
 # branch to find out whether it compiles. Keep this green and main stays
 # deployable.
 #
-# The three steps mirror the local commands exactly:
+# The four steps mirror the local commands exactly:
 #   pnpm typecheck   == tsc --noEmit
 #   pnpm test        == vitest run
+#   pnpm test:db     == node supabase/tests/schema.mjs  (real PostgreSQL via PGlite)
 #   pnpm build       == tsc --noEmit && vite build
 
 name: CI
@@ -50,6 +51,9 @@ jobs:
 
       - name: Unit tests
         run: pnpm test
+
+      - name: Database schema and RLS tests
+        run: pnpm test:db
 
       - name: Build
         run: pnpm build

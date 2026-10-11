@@ -195,3 +195,62 @@ Conventions worth keeping:
 - Add new columns as `NULL`-able or with a default, so the old code keeps
   working while the PR is in review.
 - Add indexes for the columns you actually filter on.
+
+---
+
+## Automated tests — `pnpm test:db`
+
+`supabase/tests/schema.mjs` applies every migration in filename order against a
+real PostgreSQL and then asserts the behaviour described above. It needs no
+cloud project, no Docker and no database server: PostgreSQL runs compiled to
+WebAssembly (PGlite) inside Node.
+
+```bash
+pnpm test:db
+```
+
+53 checks covering:
+
+| Area | What is asserted |
+| --- | --- |
+| Migrations | all seven apply cleanly, and are safely re-runnable |
+| Schema shape | RLS on both tables, no public table left unprotected, both tables in the Realtime publication, all three functions `SECURITY DEFINER` |
+| View | the `security_invoker` declaration, **and** a restrictive policy proving RLS is genuinely enforced through the view |
+| Privileges | `anon` has no `EXECUTE` on the write RPCs; `authenticated` does |
+| Constraints | time ordering, participant limits, coordinate ranges, title length |
+| RLS — activities | anon can read but not write; a user cannot create or edit as someone else |
+| RLS — participants | a user cannot insert or delete rows belonging to others |
+| `join_activity` | capacity enforced, joining twice is idempotent, full activity refuses, freed slots reopen, unknown ids error clearly |
+| Cascade | deleting an activity removes its participation rows |
+| Seed | six activities, valid coordinates, no duplication on re-run |
+
+### What it does **not** cover
+
+Read this before treating a green run as proof:
+
+1. **Concurrency.** PGlite is single-connection, so it cannot reproduce two
+   clients racing for the last slot. The `SELECT … FOR UPDATE` lock in
+   `join_activity()` is the entire reason that RPC exists, and it is *not*
+   exercised here. Verify it against a real Supabase project — two browsers,
+   one slot, both tapping Join.
+2. **Platform fidelity.** It runs against `supabase/tests/shim.sql`, an
+   emulation of Supabase's `auth` schema and `anon` / `authenticated` roles.
+   A divergence between the shim and the real platform would go unnoticed.
+3. **Realtime delivery.** It proves publication membership, not that events
+   actually reach a browser.
+
+### A trap worth understanding
+
+PostgreSQL does **not** apply Row Level Security to a table's owner, nor to a
+superuser. Supabase's API never runs as the owner — it switches into `anon` or
+`authenticated` — but a test that queries as owner would pass no matter how
+broken the policies were.
+
+That is why every access-control assertion in `schema.mjs` runs after:
+
+```js
+await actAs('anon')            // set role anon + set the JWT claim
+```
+
+If you add a test here, copy that pattern. An RLS test that skips it is worse
+than no test, because it reports success.

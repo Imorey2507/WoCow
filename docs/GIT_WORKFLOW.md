@@ -89,6 +89,7 @@ Before Person 5 clicks Merge:
 
 - [ ] `pnpm typecheck` passes locally
 - [ ] `pnpm test` passes
+- [ ] `pnpm test:db` passes (required for any change under `supabase/`)
 - [ ] `pnpm build` succeeds
 - [ ] The Vercel preview URL for this PR actually works
 - [ ] Create → join → leave → count updates **without a refresh**
