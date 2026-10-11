@@ -103,7 +103,7 @@ Deleting nothing is not an error.
 
 ### `public.activity_has_space(p_activity_id uuid) → boolean`
 
-`security definer`, `stable`. Used inside the RLS insert policy.
+`security definer`, `stable`. Legacy helper; the insert policy is removed by the backend integrity migration.
 
 It exists as a function rather than an inline subquery because a policy on
 `activity_participants` that reads `activity_participants` re-enters its own
@@ -136,7 +136,7 @@ denied — so the policies below are the whole security model.
 | Policy | Operation | Role | Rule |
 | --- | --- | --- | --- |
 | participants are publicly readable | SELECT | anon, authenticated | `true` |
-| users can join activities as themselves | INSERT | authenticated | `user_id = auth.uid()` **and** `activity_has_space(activity_id)` |
+| direct participant inserts | INSERT | authenticated | Denied; use `join_activity()` |
 | users can leave activities | DELETE | authenticated | `user_id = auth.uid()` |
 
 ### Why `(select auth.uid())` and not `auth.uid()`
@@ -195,3 +195,30 @@ Conventions worth keeping:
 - Add new columns as `NULL`-able or with a default, so the old code keeps
   working while the PR is in review.
 - Add indexes for the columns you actually filter on.
+
+## Backend integrity update
+
+Apply `20261011000000_backend_integrity.sql` after the existing migrations.
+This applies to the root Vite app only; do not apply the separate
+`aggie-playground/` schema to the same database.
+
+- Participant inserts and updates are denied to browser roles. The join RPC
+  performs the capacity check while locking the activity row.
+- New joins are rejected after `ends_at`; repeat joins remain idempotent.
+- Leave takes the same activity lock and reports missing activities.
+- Hosts cannot lower capacity below the existing participant count.
+- Client edits allow only writable activity fields; edits and cancellations
+  that affect no row report an error instead of a false success.
+- The feed refreshes after authentication changes, reconnects, and every minute;
+  stale requests cannot overwrite newer filter results.
+
+Run `npm run test:backend` to apply the migrations to an embedded Postgres
+engine and check RLS, capacity, duplicate joins, expiration, and cascading
+cancellation. Supabase auth roles and the publication are shimmed for this
+local test. This does not test concurrent database sessions or live Realtime.
+Run `npm test` for the API and matching tests.
+
+For the live check, configure Supabase, apply the migrations, and open two
+accounts. Create an activity with one available place, join from both, and
+verify only one succeeds and both screens update. Also verify a non-host
+cannot edit/cancel, and sign-out clears the joined badges.

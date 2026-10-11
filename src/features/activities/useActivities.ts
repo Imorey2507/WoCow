@@ -12,7 +12,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { getActivities, type ActivityFilters } from './api'
 import { subscribeToActivityChanges, type RealtimeStatus } from './realtime'
 import type { ActivityFeedRow } from '../../lib/types'
-import { isSupabaseConfigured } from '../../lib/supabase'
+import { isSupabaseConfigured, supabase } from '../../lib/supabase'
 
 const REFRESH_DEBOUNCE_MS = 250
 
@@ -44,22 +44,27 @@ export function useActivities(filters: ActivityFilters = {}): UseActivitiesResul
   // Serialised so the effect below re-runs on a real filter change only.
   const filtersKey = JSON.stringify(filters)
 
+  const requestVersion = useRef(0)
+
   const refresh = useCallback(async (silent = false) => {
     if (!isSupabaseConfigured) {
       setLoading(false)
       return
     }
+    const version = ++requestVersion.current
     if (!silent) setLoading(true)
 
     try {
       const rows = await getActivities(filtersRef.current)
+      if (version !== requestVersion.current) return
       setActivities(rows)
       setError(null)
       setLastSyncedAt(new Date())
     } catch (err) {
+      if (version !== requestVersion.current) return
       setError(err instanceof Error ? err.message : 'Could not load activities.')
     } finally {
-      setLoading(false)
+      if (version === requestVersion.current) setLoading(false)
     }
   }, [])
 
@@ -96,10 +101,19 @@ export function useActivities(filters: ActivityFilters = {}): UseActivitiesResul
     const unsubscribe = subscribeToActivityChanges({
       onParticipantsChanged: scheduleRefresh,
       onActivitiesChanged: scheduleRefresh,
-      onStatus: setRealtimeStatus,
+      onStatus: (status) => {
+        setRealtimeStatus(status)
+        if (status === 'SUBSCRIBED') scheduleRefresh()
+      },
     })
 
+    const { data: authListener } = supabase.auth.onAuthStateChange(scheduleRefresh)
+    const tick = setInterval(scheduleRefresh, 60_000)
+
     return () => {
+      ++requestVersion.current
+      clearInterval(tick)
+      authListener.subscription.unsubscribe()
       if (timer) clearTimeout(timer)
       unsubscribe()
     }

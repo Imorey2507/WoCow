@@ -51,6 +51,20 @@ export interface ActivityFilters {
 
 const FEED_TABLE = 'activity_feed'
 
+/** Explicit writable fields prevent runtime payloads from changing ownership. */
+function writableFields(input: Partial<NewActivityInput>): Partial<NewActivityInput> {
+  const result: Partial<NewActivityInput> = {}
+  const fields = ['title', 'description', 'category', 'location_name', 'latitude',
+    'longitude', 'max_participants', 'starts_at', 'ends_at'] as const
+  for (const field of fields) {
+    if (input[field] !== undefined) Object.assign(result, { [field]: input[field] })
+  }
+  for (const field of ['title', 'category', 'location_name'] as const) {
+    if (result[field] !== undefined) result[field] = result[field]!.trim()
+  }
+  return result
+}
+
 /**
  * Turns raw Postgres/PostgREST failures into something a student can read.
  * The messages raised by public.join_activity() arrive here verbatim.
@@ -70,6 +84,10 @@ function toWoCowError(
   if (/must be signed in/i.test(message)) {
     return new WoCowError('Please sign in first.')
   }
+  if (/already ended/i.test(message)) {
+    return new WoCowError('That activity has already ended.')
+  }
+  if (/Capacity cannot/i.test(message)) return new WoCowError(message)
   if (error?.code === '23505') {
     return new WoCowError('You have already joined this activity.')
   }
@@ -237,15 +255,19 @@ export async function updateActivity(
   id: string,
   patch: Partial<NewActivityInput>,
 ): Promise<ActivityFeedRow> {
-  const { error } = await supabase.from('activities').update(patch).eq('id', id)
+  await requireUserId()
+  const { data, error } = await supabase.from('activities').update(writableFields(patch)).eq('id', id).select('id').maybeSingle()
   if (error) throw toWoCowError(error, 'Could not update the activity.')
+  if (!data) throw new WoCowError('Activity not found or you are not its host.')
   return getActivity(id)
 }
 
 /** Host-only cancel. Participants cascade away via the FK. */
 export async function deleteActivity(id: string): Promise<void> {
-  const { error } = await supabase.from('activities').delete().eq('id', id)
+  await requireUserId()
+  const { data, error } = await supabase.from('activities').delete().eq('id', id).select('id').maybeSingle()
   if (error) throw toWoCowError(error, 'Could not delete the activity.')
+  if (!data) throw new WoCowError('Activity not found or you are not its host.')
 }
 
 /**
