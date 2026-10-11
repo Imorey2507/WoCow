@@ -14,9 +14,11 @@ This is the native iOS app in the WoCow repository. It is a separate Expo and Re
 
 3. Make sure your iPhone and computer are on the same Wi-Fi network. Scan the QR code shown in the terminal using your iPhone camera, then open it in Expo Go.
 
-The app opens to an interactive UC Davis campus map. It uses the iPhone's Apple Maps implementation and does not need a Google Maps key. The map can be panned and zoomed, campus pins can be selected, and the selected spot can be opened in Apple Maps.
+The app has Map, Discover, Buddies, and Profile tabs. Discover includes activity search and category filters, a host form, and student discussions. Buddies and Profile have preview interactions.
 
-Activity data is not connected yet. The map displays public meeting spots from the website project and clearly indicates that live activity pins need the data service. The app scaffold and map can be worked on before Supabase or Context.dev keys are available.
+Until the native app is connected to Supabase, example activities and profile actions are preview-only and stay on the phone during the current app session. They do not sync to the website or other students. To enable shared sign-in, activity hosting and joining, buddy requests, profiles, notifications, and club events, configure the Supabase project URL and public publishable key for the native app and add the needed redirect URL in Supabase Auth. Never put a Supabase service-role key or the Context.dev secret in the iPhone app. Context.dev requests must go through the existing server route.
+
+The campus map uses Apple Maps on iPhone and does not need a Google Maps key. Campus pins can be selected and opened in Apple Maps.
 
 ## Project layout
 
