@@ -18,7 +18,7 @@
  * Because there is exactly one `useActivities` call, there is exactly one
  * websocket channel — mounting a second one per tab would leak connections.
  */
-import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from 'react'
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { Header, type TabKey } from './components/Header'
 import { SetupNotice } from './components/SetupNotice'
@@ -101,6 +101,31 @@ export default function App() {
     () => matches.filter((match) => !(match.activity.is_full && !match.activity.is_joined)),
     [matches],
   )
+
+  // ---- re-read the feed when the signed-in user changes --------------------
+  // `is_joined` and `host_id` are computed BY THE DATABASE from auth.uid(), so
+  // the feed is only correct for the identity that fetched it. useActivities
+  // refetches on filter changes, which sign-in/sign-out does not trigger —
+  // without this, after signing in you would still see "Join" on activities
+  // you are already in, and the "My plans" tab would look empty.
+  //
+  // The first settle is skipped because useActivities has already fetched once
+  // on mount; this only reacts to an actual identity change.
+  const currentUserId = auth.user?.id ?? null
+  const settledUserId = useRef<string | null | undefined>(undefined)
+
+  useEffect(() => {
+    if (auth.loading) return
+
+    if (settledUserId.current === undefined) {
+      settledUserId.current = currentUserId
+      return
+    }
+    if (settledUserId.current === currentUserId) return
+
+    settledUserId.current = currentUserId
+    void refresh(true)
+  }, [currentUserId, auth.loading, refresh])
 
   // ---- toast auto-dismiss --------------------------------------------------
   useEffect(() => {
@@ -232,8 +257,6 @@ export default function App() {
       </div>
     )
   }
-
-  const currentUserId = auth.user?.id ?? null
 
   return (
     <div className="wocow-app">

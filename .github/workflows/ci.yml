@@ -1,30 +1,36 @@
-# WoCow · continuous integration
+# Aggie Playground — continuous integration
 #
-# Runs on every pull request so Person 5 never has to check out someone's
-# branch to find out whether it compiles. Keep this green and main stays
-# deployable.
+# SCOPE: the official WoCow submission app only, in aggie-playground/.
+# The Vite app at the repository root is a frozen backup and is deliberately
+# not built here — see README.md.
 #
-# The four steps mirror the local commands exactly:
-#   pnpm typecheck   == tsc --noEmit
-#   pnpm test        == vitest run
-#   pnpm test:db     == node supabase/tests/schema.mjs  (real PostgreSQL via PGlite)
-#   pnpm build       == tsc --noEmit && vite build
+# Uses npm (not pnpm) because aggie-playground/package-lock.json is the
+# authoritative lockfile for this app, committed by its author.
 
-name: CI
+name: CI (Aggie Playground)
 
 on:
   push:
     branches: [main]
+    paths:
+      - "aggie-playground/**"
+      - ".github/workflows/ci.yml"
   pull_request:
+    paths:
+      - "aggie-playground/**"
+      - ".github/workflows/ci.yml"
 
-# Cancel a superseded run when someone pushes again to the same branch.
 concurrency:
-  group: ci-${{ github.ref }}
+  group: ci-aggie-${{ github.ref }}
   cancel-in-progress: true
+
+defaults:
+  run:
+    working-directory: aggie-playground
 
 jobs:
   verify:
-    name: Typecheck, test and build
+    name: Lint, typecheck, test, build
     runs-on: ubuntu-latest
     timeout-minutes: 15
 
@@ -32,41 +38,31 @@ jobs:
       - name: Check out the repository
         uses: actions/checkout@v4
 
-      - name: Set up pnpm
-        uses: pnpm/action-setup@v4
-        with:
-          version: 11
-
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
           node-version: 22
-          cache: pnpm
+          cache: npm
+          cache-dependency-path: aggie-playground/package-lock.json
 
       - name: Install dependencies
-        run: pnpm install --frozen-lockfile
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint
 
       - name: Typecheck
-        run: pnpm typecheck
+        run: npm run typecheck
 
       - name: Unit tests
-        run: pnpm test
+        run: npm test
 
-      - name: Database schema and RLS tests
-        run: pnpm test:db
-
-      - name: Build
-        run: pnpm build
+      - name: Production build
+        run: npm run build
         env:
-          # Placeholder values so the build succeeds without real secrets.
-          # Vite inlines these at build time; the app gates on
-          # isSupabaseConfigured. Put real values in Vercel, not here.
-          VITE_SUPABASE_URL: https://ci-placeholder.supabase.co
-          VITE_SUPABASE_PUBLISHABLE_KEY: ci-placeholder-key
-
-      - name: Upload the build output
-        uses: actions/upload-artifact@v4
-        with:
-          name: dist
-          path: dist/
-          retention-days: 5
+          # Placeholders so the "Supabase is configured" branch is compiled
+          # too. Without these, `supabaseConfigured` folds to `false` at build
+          # time and the configured code path is tree-shaken away, so CI would
+          # stop catching errors in it. Real values live in Vercel, never here.
+          NEXT_PUBLIC_SUPABASE_URL: https://ci-placeholder.supabase.co
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: ci-placeholder-anon-key
