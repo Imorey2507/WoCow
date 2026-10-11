@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { getBuddyFeed, respondToBuddyRequest, sendBuddyRequest } from "./api";
+import { busyForViewer, type BusyMarker } from "./buddies";
 import type { Profile } from "@/lib/types";
 import type { BuddyRequest } from "./buddies";
 
@@ -16,11 +17,15 @@ interface Snapshot {
 
 export function useBuddyFeed(viewerId: string | undefined) {
   const [snapshot, setSnapshot] = useState<Snapshot | null>(null);
-  const [busy, setBusy] = useState<string | null>(null);
+  const [busyMarker, setBusyMarker] = useState<BusyMarker | null>(null);
   const inflightAction = useRef(false);
   const controller = useRef<AbortController | null>(null);
   const currentViewer = useRef(viewerId);
-  useEffect(() => { currentViewer.current = viewerId; }, [viewerId]);
+  useEffect(() => {
+    currentViewer.current = viewerId;
+    // A new identity must not inherit the previous viewer's action state.
+    setBusyMarker(null);
+  }, [viewerId]);
 
   const refresh = useCallback(async () => {
     controller.current?.abort();
@@ -61,7 +66,7 @@ export function useBuddyFeed(viewerId: string | undefined) {
     if (!viewerId) return "Sign in to connect.";
     if (inflightAction.current) return "Request already in progress.";
     inflightAction.current = true;
-    setBusy(key);
+    setBusyMarker({ viewerId, key });
     try {
       await action();
       if (currentViewer.current === viewerId) await refresh();
@@ -71,7 +76,8 @@ export function useBuddyFeed(viewerId: string | undefined) {
       return error instanceof Error ? error.message : "Could not update buddy request.";
     } finally {
       inflightAction.current = false;
-      setBusy(null);
+      // Clear only our own marker; one belonging to a newer viewer must stand.
+      setBusyMarker((prev) => (prev && prev.viewerId === viewerId ? null : prev));
     }
   }, [viewerId, refresh]);
 
@@ -79,7 +85,8 @@ export function useBuddyFeed(viewerId: string | undefined) {
   const data = snapshot?.viewerId === viewerId ? snapshot : null;
   return {
     others: data?.people ?? [], reqs: data?.requests ?? [], names: data?.names ?? {},
-    ready: data?.ready ?? false, error: data?.error ?? null, busy, refresh,
+    ready: data?.ready ?? false, error: data?.error ?? null,
+    busy: busyForViewer(busyMarker, viewerId), refresh,
     connect: (id: string) => act(id, () => sendBuddyRequest(viewerId!, id)),
     respond: (id: string, status: "accepted" | "declined") =>
       act(id, () => respondToBuddyRequest(viewerId!, id, status)),

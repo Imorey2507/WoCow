@@ -3,9 +3,11 @@
 import { useMemo } from "react";
 import Link from "next/link";
 import { categoryOf } from "@/lib/categories";
+import { supabaseConfigured } from "@/lib/supabase/client";
 import { useAuth } from "@/components/AuthProvider";
 import { useUI } from "@/components/UIProvider";
 import { EmptyState } from "@/components/ActivityCard";
+import { NotConfiguredNotice } from "@/components/States";
 import { Cow } from "@/components/Cow";
 import { buddyRelation, rankBuddies } from "@/features/matching/buddies";
 import { useBuddyFeed } from "@/features/matching/useBuddyFeed";
@@ -16,7 +18,18 @@ export default function BuddiesPage() {
   const { others, reqs, names, ready, error, busy, refresh, connect: send, respond: reply } = useBuddyFeed(user?.id);
   const ranked = useMemo(() => profile ? rankBuddies(profile, others) : [], [others, profile]);
 
-  if (loading) return <div className="h-40 animate-pulse rounded-3xl bg-white/60" />;
+  if (loading) return <div className="h-40 animate-pulse rounded-3xl bg-white/60" role="status" aria-busy="true" aria-label="Loading your profile" />;
+
+  // No Supabase project: say so, rather than offering a sign-in that cannot work.
+  if (!supabaseConfigured) {
+    return (
+      <div className="mx-auto max-w-2xl space-y-6 pt-4">
+        <h1 className="font-display text-3xl font-bold">🤝 Matching Buddies</h1>
+        <NotConfiguredNotice />
+      </div>
+    );
+  }
+
   if (!user || !profile)
     return (
       <div className="mx-auto max-w-md pt-6 text-center">

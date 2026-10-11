@@ -37,3 +37,21 @@ export function buddyRelation(requests: BuddyRequest[], viewerId: string, otherI
       Number(b.to_user === viewerId) - Number(a.to_user === viewerId) ||
       a.id.localeCompare(b.id))[0];
 }
+
+/** An in-flight action marker, tagged with the viewer who started it. */
+export interface BusyMarker {
+  viewerId: string;
+  key: string;
+}
+
+/**
+ * A busy marker belongs to the viewer who started it.
+ *
+ * Without this, a request in flight for A would still render "Sending…" and
+ * disable buttons after B signed in — a previous identity's action state leaking
+ * into the current viewer's UI. Only the owning viewer ever sees the marker.
+ */
+export function busyForViewer(marker: BusyMarker | null, viewerId: string | null | undefined): string | null {
+  if (!viewerId || !marker) return null;
+  return marker.viewerId === viewerId ? marker.key : null;
+}

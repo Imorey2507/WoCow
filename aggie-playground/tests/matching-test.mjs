@@ -1,6 +1,6 @@
 import { describe, test } from "node:test";
 import assert from "node:assert/strict";
-import { scoreBuddy, rankBuddies, buddyRelation } from "../src/features/matching/buddies.ts";
+import { scoreBuddy, rankBuddies, buddyRelation, busyForViewer } from "../src/features/matching/buddies.ts";
 import { recommendActivities, ACTIVITY_MATCH_WEIGHTS } from "../src/features/matching/activities.ts";
 
 const NOW = new Date("2026-10-11T18:00:00Z");
@@ -105,5 +105,38 @@ describe("activity recommendations", () => {
   });
   test("earlier starts win when scores round to a tie", () => {
     assert.equal(recommend([activity({ id: "late", starts_at: "2026-10-11T18:20:00Z" }), activity({ id: "early" })])[0].activity.id, "early");
+  });
+});
+
+describe("busyForViewer — an action marker never crosses identities", () => {
+  const A = "user-a";
+  const B = "user-b";
+
+  test("the owner sees their own marker", () => {
+    assert.equal(busyForViewer({ viewerId: A, key: "target-1" }, A), "target-1");
+  });
+
+  test("another signed-in viewer does not see it", () => {
+    assert.equal(busyForViewer({ viewerId: A, key: "target-1" }, B), null);
+  });
+
+  test("a signed-out viewer sees nothing", () => {
+    assert.equal(busyForViewer({ viewerId: A, key: "target-1" }, null), null);
+    assert.equal(busyForViewer({ viewerId: A, key: "target-1" }, undefined), null);
+  });
+
+  test("no marker is no marker", () => {
+    assert.equal(busyForViewer(null, A), null);
+  });
+
+  test("an empty viewer id never matches, so nothing is disabled by accident", () => {
+    assert.equal(busyForViewer({ viewerId: "", key: "x" }, ""), null);
+  });
+
+  test("is deterministic and does not mutate the marker", () => {
+    const marker = { viewerId: A, key: "target-1" };
+    const before = JSON.stringify(marker);
+    assert.equal(busyForViewer(marker, A), busyForViewer(marker, A));
+    assert.equal(JSON.stringify(marker), before);
   });
 });
