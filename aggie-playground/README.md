@@ -1,5 +1,7 @@
 # 🐮 Aggie Playground
 
+**Selected WoCow implementation (team decision, 2026-10-11).** The repository-root Vite app is retained as a backup; new matching work belongs here. Deploy with Vercel Root Directory `aggie-playground`, and apply only this app's Supabase migrations.
+
 A playful, real-time campus social app for UC Davis: see what's happening **right now**, join spontaneous
 activities from a live map, find people with shared interests, and discover official club events.
 
@@ -17,7 +19,8 @@ Leaflet + OpenStreetMap · Context.dev · deploys to Vercel.
 | Map | Leaflet + OSM, real UC Davis coordinates, category-colored pins with live count, preview card with Join, category + status filters. Only public meeting spots are shown, never personal locations. |
 | Context.dev | Server-only. `POST /api/clubs/refresh` scrapes AggieLife with Context.dev's `web/scrape` JSON extraction, normalizes, de-duplicates, caches in `club_events`, and logs every run in `club_sync_log`. Failures are shown to the user — nothing is substituted. |
 | Notifications | DB triggers notify students whose favorite categories match a new activity, and joined students when an activity is updated or cancelled. In-app center on the Profile page. |
-| Buddies | Opt-in only (off by default). Score = +1 per shared category, +2 per shared activity. Interests are exposed through the `public_profiles` view only when the student opted in. |
+| Buddies | Opt-in only (off by default). Score = +1 per unique shared category, +2 per unique shared activity; only students with a shared interest are recommended. Stable ties, paginated discovery, request refresh every 30 seconds/on focus, and retryable errors. Interests are exposed through `public_profiles` only when the student opted in. |
+| Activity recommendations | Favorites and preferred subactivities from the saved Profile; weighted interest (60%), timing (30%), and available space (10%). Excludes cancelled, ended, full, joined and self-hosted events. Recomputes every 30 seconds/on focus and explains each recommendation. |
 | Discussions | Basic posts by topic (signed-in users post; everyone reads). |
 | PWA | Web manifest + icon so it can be added to a home screen. |
 
@@ -81,7 +84,7 @@ Verified in development:
 
 - Browser push notifications and an offline service worker are not implemented (in-app notifications only). The PWA is installable via manifest but uses an SVG icon; add 192/512 PNGs for the best iOS result.
 - Sign-in accepts any email. To restrict to UC Davis, enable an email-domain check in Supabase (Auth hook) or add a `@ucdavis.edu` check.
-- Recommendations are simple (your favorite categories, soonest first). Forum has no comments or moderation.
+- Recommendations use declared preferences, timing and space; they do not infer location, availability, or personality. Forum has no comments or moderation.
 - No seeded activities or demo profiles: the empty states are real. Add test accounts and mark `profiles.is_demo = true` if you want them labeled "DEMO PROFILE" in Buddies.
 
 ## Project map
@@ -94,3 +97,26 @@ src/app/{page,map,discover,buddies,profile}
 src/app/api/clubs/refresh/route.ts  authenticated refresh endpoint
 src/lib/server/{context,clubs}.ts   Context.dev client, normalization, dedupe, caching
 ```
+
+## Person 4: matching verification
+
+The matching module lives in `src/features/matching/`, connected to Discover and Buddies. It uses this app's existing profile preferences, not the Vite backup's localStorage or 10-category taxonomy. No imports cross between the apps.
+
+Use Node.js **22.18+** (or Node 24) for the zero-dependency test runner's TypeScript stripping:
+
+```bash
+npm run test        # node --test: includes tests/matching-test.mjs
+npm run typecheck
+npm run lint
+npm run build
+```
+
+Review on the shared Supabase project with two accounts:
+1. Save a category and subactivity in Profile; turn on buddy discoverability for the second account.
+2. Buddies should show shared interests and the documented point score; students without shared interests are not recommendations.
+3. Send a request once, then accept from the second account. Buttons show a pending state; the other account refreshes within 30 seconds or on window focus.
+4. Opt the second account out: they leave discovery after a refresh. Existing connection names/avatars remain available through the redacted public view.
+5. Discover recommendations should prioritize preferred subactivities, show the reason, and exclude full, cancelled, ended, joined and self-hosted events.
+6. Disconnect the network: Buddies shows an error with Retry instead of a misleading empty result.
+
+Buddy synchronization currently uses polling because `buddy_requests` and `profiles` are not in the schema's Realtime publication. Concurrent reciprocal inserts can still create two rows (the database uniqueness constraint is directional); the UI resolves their displayed relation consistently. Canonical pair uniqueness is a backend follow-up.
