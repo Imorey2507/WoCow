@@ -72,17 +72,14 @@ export async function GET(request: NextRequest) {
     return NextResponse.redirect(`${origin}${safeNext}`);
   }
 
-  // Diagnostic. Cookie NAMES only — never values. `(none)` here means the browser
-  // never sent the verifier, i.e. the link was opened in a different cookie jar
-  // (another browser, or a mail client's in-app browser).
-  const authCookieNames = cookieStore
-    .getAll()
-    .map((c) => c.name)
-    .filter((n) => n.includes("auth-token"));
+  // Diagnostic. Deliberately counts only: no cookie names, and no values ever.
+  // A count of 0 means the browser sent no auth cookies at all (the link was
+  // opened in a different cookie jar); a count above 0 with no verifier means
+  // the cookies arrived but the PKCE verifier was not among them.
+  const authCookies = cookieStore.getAll().filter((c) => c.name.includes("auth-token"));
+  const hasVerifier = authCookies.some((c) => c.name.endsWith("-code-verifier"));
   console.warn(
-    `[auth/callback] server exchange failed: ${error.message} | auth cookies on this request: ${
-      authCookieNames.length ? authCookieNames.join(", ") : "(none)"
-    } | handing off to /auth/finish`,
+    `[auth/callback] server exchange failed (${error.message}) | auth cookies on request: ${authCookies.length} | code-verifier present: ${hasVerifier} | handing off to /auth/finish`,
   );
 
   const handoff = new URLSearchParams({ code });

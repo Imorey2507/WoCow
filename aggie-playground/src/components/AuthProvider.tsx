@@ -54,9 +54,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [loadProfile]);
 
   const signInWithEmail = useCallback(async (email: string) => {
-    // Point at the PKCE callback route: the email link carries ?code=... and only
-    // /auth/callback can exchange it for a session.
-    const redirectTo = typeof window !== "undefined" ? `${window.location.origin}/auth/callback` : undefined;
+    // Where the emailed link should come back to.
+    //
+    // `NEXT_PUBLIC_SITE_URL` wins when it is set: on Vercel the preview hostname
+    // changes on every deployment, so a fixed, allowlisted origin is easier to
+    // reason about. Otherwise fall back to the origin the student is actually
+    // on, which is always a valid host. This is never hardcoded — localhost only
+    // appears here through window.location.
+    const site = process.env.NEXT_PUBLIC_SITE_URL?.trim().replace(/\/+$/, "");
+    const origin = site || (typeof window !== "undefined" ? window.location.origin : "");
+    const redirectTo = origin ? `${origin}/auth/callback` : undefined;
     const { error } = await getSupabase().auth.signInWithOtp({
       email,
       options: { emailRedirectTo: redirectTo },
