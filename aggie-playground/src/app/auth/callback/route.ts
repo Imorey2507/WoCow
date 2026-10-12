@@ -49,6 +49,20 @@ export async function GET(request: NextRequest) {
 
   const { error } = await supabase.auth.exchangeCodeForSession(code);
   if (error) {
+    // Diagnostic for the PKCE-verifier case. Cookie NAMES only — never values.
+    // `sb-<ref>-auth-token-flow-<flowId>-code-verifier` is what the browser client
+    // writes; if none of those arrived, the link was opened somewhere that does
+    // not share the requesting browser's cookies (different host, or a mail
+    // client's in-app browser), which no server code can fix.
+    const authCookieNames = cookieStore
+      .getAll()
+      .map((c) => c.name)
+      .filter((n) => n.includes("auth-token"));
+    console.warn(
+      `[auth/callback] code exchange failed: ${error.message} | auth cookies on this request: ${
+        authCookieNames.length ? authCookieNames.join(", ") : "(none)"
+      }`,
+    );
     return NextResponse.redirect(`${origin}/?auth_error=${encodeURIComponent(error.message)}`);
   }
   return NextResponse.redirect(`${origin}${safeNext}`);

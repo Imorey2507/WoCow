@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useActivities } from "@/components/ActivitiesProvider";
 import { useAuth } from "@/components/AuthProvider";
 import { useUI } from "@/components/UIProvider";
@@ -16,6 +16,23 @@ export default function Home() {
   const { openHost } = useUI();
   const [categories, setCategories] = useState<string[]>([]);
   const [selected, setSelected] = useState<string | null>(null);
+  const [authError, setAuthError] = useState<string | null>(null);
+
+  // /auth/callback bounces failures back here. Without this the magic link would
+  // appear to do nothing at all, which is the worst possible failure mode.
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const raw = params.get("auth_error");
+    if (!raw) return;
+    const friendly = /code verifier/i.test(raw)
+      ? "That sign-in link was opened in a different browser or a different address than the one that requested it. Open the link in the same browser and the same host (localhost stays localhost, 127.0.0.1 stays 127.0.0.1), then try again."
+      : raw;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- reading the one-shot callback error from the URL
+    setAuthError(friendly);
+    params.delete("auth_error");
+    const qs = params.toString();
+    window.history.replaceState({}, "", window.location.pathname + (qs ? `?${qs}` : ""));
+  }, []);
 
   const filtered = useMemo(() => applyFilters(activities, { ...DEFAULT_FILTERS, categories }), [activities, categories]);
   const live = filtered.filter((a) => a.live_status === "live");
@@ -43,6 +60,12 @@ export default function Home() {
           </div>
         </div>
       </section>
+
+      {authError && (
+        <p role="alert" className="rounded-2xl border-2 border-ink bg-coral/50 p-3 font-bold">
+          Sign-in didn&apos;t complete. {authError}
+        </p>
+      )}
 
       {error && <p role="alert" className="rounded-2xl border-2 border-ink bg-coral/40 p-3 font-bold">Couldn&apos;t load activities: {error}</p>}
 
