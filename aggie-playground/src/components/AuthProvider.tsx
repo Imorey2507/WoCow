@@ -11,6 +11,7 @@ interface AuthCtx {
   loading: boolean;
   configured: boolean;
   signInWithEmail: (email: string) => Promise<string | null>;
+  signInWithPassword: (email: string, password: string) => Promise<string | null>;
   signOut: () => Promise<void>;
   refreshProfile: () => Promise<void>;
   requireAuth: () => boolean; // returns true if signed in, otherwise opens the sign-in sheet
@@ -63,6 +64,20 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return error ? error.message : null;
   }, []);
 
+  /**
+   * Password sign-in, as a deliberate second path next to the magic link.
+   *
+   * Supabase's built-in SMTP is capped at a couple of emails per hour per
+   * project, which can make the link flow impossible to use at all. This path
+   * uses no email, but it is still real authentication — no anonymous sign-in,
+   * and email confirmation stays on. The account is created out of band (the
+   * Supabase dashboard's "Add user" with auto-confirm).
+   */
+  const signInWithPassword = useCallback(async (email: string, password: string) => {
+    const { error } = await getSupabase().auth.signInWithPassword({ email, password });
+    return error ? error.message : null;
+  }, []);
+
   const signOut = useCallback(async () => {
     await getSupabase().auth.signOut();
   }, []);
@@ -80,13 +95,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       loading,
       configured: supabaseConfigured,
       signInWithEmail,
+      signInWithPassword,
       signOut,
       refreshProfile: () => loadProfile(user),
       requireAuth,
       authOpen,
       setAuthOpen,
     }),
-    [user, profile, loading, signInWithEmail, signOut, loadProfile, requireAuth, authOpen],
+    [user, profile, loading, signInWithEmail, signInWithPassword, signOut, loadProfile, requireAuth, authOpen],
   );
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
