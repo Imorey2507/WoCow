@@ -83,3 +83,46 @@ describe("sign-in points at the callback", () => {
     assert.match(read(BROWSER_CLIENT), /createBrowserClient/);
   });
 });
+
+describe("redirect origin is the host the browser actually used", () => {
+  test("the callback does not trust new URL(request.url).origin", () => {
+    // The Next dev server normalises a request that arrived on 127.0.0.1:3001 to
+    // localhost:3001, so trusting request.url sends the browser to a different
+    // host — and cookies are host-scoped, so the new session would vanish.
+    const src = code(CALLBACK);
+    assert.match(src, /headers\.get\("host"\)/, "must derive the origin from the Host header");
+    assert.match(src, /x-forwarded-host/);
+    assert.match(src, /x-forwarded-proto/);
+  });
+
+  test("still refuses to redirect off-origin", () => {
+    const src = code(CALLBACK);
+    assert.match(src, /startsWith\("\/"\)/);
+    assert.match(src, /startsWith\("\/\/"\)/);
+  });
+});
+
+describe("browser-side fallback", () => {
+  const FINISH = resolve(SRC, "app", "auth", "finish", "page.tsx");
+
+  test("exists, so a failed server exchange is not a dead end", () => {
+    assert.ok(existsSync(FINISH), "the /auth/finish fallback page is missing");
+  });
+
+  test("retries the exchange with the browser client", () => {
+    const src = code(FINISH);
+    assert.match(src, /exchangeCodeForSession/);
+    assert.match(src, /getSession/, "must check for a session even if the retry errors");
+    assert.match(src, /createBrowserClient|getSupabase/);
+  });
+
+  test("the server route hands off instead of showing a dead end", () => {
+    assert.match(read(CALLBACK), /\/auth\/finish/);
+  });
+
+  test("the fallback never renders or logs the code", () => {
+    const src = code(FINISH);
+    assert.doesNotMatch(src, /console\.(log|warn|error)/);
+    assert.doesNotMatch(src, /\{code\}/, "the code must never be rendered");
+  });
+});
